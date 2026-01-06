@@ -5,39 +5,41 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2025-10-09
+## [0.2.0] - 2025-01-06
+
+### Added
+- `manage_licenses` tool for comprehensive license CRUD operations
+- `license_seats` tool for managing license seat assignments (checkout/checkin)
+- `license_files` tool for license file attachment management
+- `manage_accessories` tool for accessory CRUD operations
+- `accessory_operations` tool for accessory checkout/checkin to users
+- `manage_categories` tool for category management across all item types
+- `manage_manufacturers` tool for manufacturer information management
+- `manage_models` tool for asset model management
+- `manage_status_labels` tool for status label configuration
+- `manage_locations` tool for physical location management
+- `manage_suppliers` tool for supplier information management
+- `manage_depreciations` tool for depreciation schedule management
+- `SnipeITDirectAPI` class for extended API endpoint support
+
+### Changed
+- Updated snipeit-python-api dependency to GitHub source
+- Expanded tool documentation in module docstring
+
+## [0.1.0] - 2025-01-03
 
 ### Added
 - Initial implementation of Snipe-IT MCP Server
 - `manage_assets` tool for comprehensive asset CRUD operations
-  - Create, get, list, update, and delete assets
-  - Support for searching by ID, asset tag, or serial number
-  - Pagination and filtering for list operations
-- `asset_operations` tool for asset state management
-  - Checkout assets to users, locations, or other assets
-  - Checkin assets back to inventory
-  - Audit assets with optional audit date
-  - Restore soft-deleted assets
+- `asset_operations` tool for asset state management (checkout, checkin, audit, restore)
 - `asset_files` tool for file attachment management
-  - Upload multiple files to assets
-  - List all files attached to an asset
-  - Download specific files from assets
-  - Delete file attachments
 - `asset_labels` tool for generating printable PDF labels
-  - Support for generating labels by asset IDs or asset tags
-  - Customizable save path for PDF output
 - `asset_maintenance` tool for maintenance record management
-  - Create maintenance records with cost, dates, and notes
 - `asset_licenses` tool for viewing licenses associated with assets
-- `manage_consumables` tool for comprehensive consumable CRUD operations
-  - Create, get, list, update, and delete consumables
-  - Pagination and filtering support
+- `manage_consumables` tool for consumable CRUD operations
 - Comprehensive error handling with structured responses
-- Logging configuration for debugging and monitoring
-- Environment variable configuration for Snipe-IT credentials
 - Type-safe Pydantic models for all tool inputs
-- Comprehensive README documentation with examples
-- MCP client integration guides for Claude Desktop and Cursor
+- Environment variable configuration for Snipe-IT credentials
 
 ### Technical Details
 - Built with FastMCP 2.x
@@ -46,4 +48,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UV package manager support
 - Stdio transport for MCP communication
 
-[0.1.0]: https://github.com/yourusername/snipeit-mcp/releases/tag/v0.1.0
+[0.2.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/v0.2.0
+[0.1.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/v0.1.0

@@ -1138,36 +1138,9 @@ wheels = [
 [[package]]
 name = "snipeit-api"
 version = "0.1.0"
-source = { directory = "../../Inventory/snipeit-python-api" }
+source = { git = "https://github.com/lfctech/snipeit-python-api?rev=main#11cd643d6c961fe51ca91a5f9e1a688e5c9a4a30" }
 dependencies = [
     { name = "requests" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "coverage", marker = "extra == 'dev'" },
-    { name = "hypothesis", marker = "extra == 'dev'" },
-    { name = "mutmut", marker = "extra == 'dev'", specifier = "<3" },
-    { name = "pyright", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "requests" },
-    { name = "requests-mock", marker = "extra == 'dev'" },
-    { name = "ruff", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "coverage" },
-    { name = "hypothesis" },
-    { name = "mutmut", specifier = "<3" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "requests-mock" },
-    { name = "ruff" },
-    { name = "ty", specifier = ">=0.0.1a21" },
 ]
 
 [[package]]
@@ -1184,7 +1157,7 @@ dependencies = [
 requires-dist = [
     { name = "fastmcp", specifier = ">=2.0.0" },
     { name = "requests", specifier = ">=2.31.0" },
-    { name = "snipeit-api", directory = "../../Inventory/snipeit-python-api" },
+    { name = "snipeit-api", git = "https://github.com/lfctech/snipeit-python-api?rev=main" },
 ]
 
 [[package]]

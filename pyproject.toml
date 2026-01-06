@@ -1,13 +1,21 @@
 [project]
 name = "snipeit-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server for Snipe-IT inventory management system"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
+keywords = ["mcp", "snipeit", "inventory", "asset-management", "ai"]
 dependencies = [
     "fastmcp>=2.0.0",
     "requests>=2.31.0",
-    "snipeit-api @ file:///Users/work/Documents/Projects/Inventory/snipeit-python-api",
+    "snipeit-api @ git+https://github.com/lfctech/snipeit-python-api@main",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jameshgordy/snipeit-mcp"
+Repository = "https://github.com/jameshgordy/snipeit-mcp"
+Issues = "https://github.com/jameshgordy/snipeit-mcp/issues"
 
 [tool.uv]
 package = false
