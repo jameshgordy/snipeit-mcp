@@ -1,6 +1,6 @@
 # Snipe-IT MCP Server
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for managing [Snipe-IT](https://snipeitapp.com/) inventory systems. This server enables AI assistants to perform comprehensive CRUD operations across your entire Snipe-IT instance.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for managing [Snipe-IT](https://snipeitapp.com/) inventory systems. This server enables AI assistants to perform full CRUD operations across your entire Snipe-IT instance with **29 tools** covering all major API endpoints.
 
 ## Features
 
@@ -14,21 +14,38 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ma
 
 ### Inventory Tracking
 - **Consumables**: Complete management of consumable items
-- **Accessories**: Track accessories with checkout/checkin operations
+- **Components**: Manage components with checkout/checkin to assets
+- **Accessories**: Track accessories with checkout/checkin to users
+
+### Users & Organization
+- **Users**: Full user management including restore and current user endpoint
+- **User Assets**: View all items checked out to a user
+- **Companies**: Multi-tenant company management
+- **Departments**: Organizational department management
+- **Groups**: Permission group management
 
 ### System Configuration
-- **Categories**: Manage asset, accessory, consumable, component, and license categories
-- **Manufacturers**: Track manufacturer information and support contacts
+- **Categories**: Manage categories for all item types
+- **Manufacturers**: Track manufacturer information
 - **Models**: Define asset models with depreciation and custom fields
-- **Status Labels**: Configure asset statuses (deployable, pending, archived, etc.)
-- **Locations**: Manage physical locations with hierarchy support
-- **Suppliers**: Track supplier information and contacts
+- **Status Labels**: Configure asset statuses
+- **Locations**: Manage physical locations with hierarchy
+- **Suppliers**: Track supplier information
 - **Depreciations**: Define depreciation schedules
+
+### Custom Fields
+- **Fields**: Create and manage custom field definitions
+- **Fieldsets**: Group custom fields for assignment to models
+- **Field Association**: Associate/disassociate fields with fieldsets
 
 ### Licensing
 - **License Management**: Full CRUD for software licenses
-- **Seat Assignments**: Checkout/checkin license seats to users or assets
-- **License Files**: Manage license documentation and attachments
+- **Seat Assignments**: Checkout/checkin license seats
+- **License Files**: Manage license documentation
+
+### Reporting
+- **Activity Logs**: Query all activity history
+- **Item Activity**: Get activity for specific items
 
 ## Requirements
 
@@ -99,32 +116,11 @@ Add to your MCP configuration file:
 
 ### Cursor
 
-Add to your Cursor MCP settings:
+Add to your Cursor MCP settings with the same configuration format as above.
 
-```json
-{
-  "mcpServers": {
-    "snipeit": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/path/to/snipeit-mcp",
-        "run",
-        "python",
-        "server.py"
-      ],
-      "env": {
-        "SNIPEIT_URL": "https://your-snipeit-instance.com",
-        "SNIPEIT_TOKEN": "your-api-token-here"
-      }
-    }
-  }
-}
-```
+## Available Tools (29 Total)
 
-## Available Tools
-
-### Asset Tools
+### Asset Tools (6)
 
 | Tool | Description |
 |------|-------------|
@@ -135,15 +131,27 @@ Add to your Cursor MCP settings:
 | `asset_maintenance` | Create maintenance records |
 | `asset_licenses` | View licenses assigned to an asset |
 
-### Inventory Tools
+### Inventory Tools (5)
 
 | Tool | Description |
 |------|-------------|
 | `manage_consumables` | CRUD operations for consumables |
+| `manage_components` | CRUD operations for components |
+| `component_operations` | Checkout/checkin components to assets |
 | `manage_accessories` | CRUD operations for accessories |
 | `accessory_operations` | Checkout/checkin accessories to users |
 
-### Configuration Tools
+### User & Organization Tools (5)
+
+| Tool | Description |
+|------|-------------|
+| `manage_users` | CRUD operations for users (+ restore, me) |
+| `user_assets` | Get all items checked out to a user |
+| `manage_companies` | CRUD operations for companies |
+| `manage_departments` | CRUD operations for departments |
+| `manage_groups` | CRUD operations for permission groups |
+
+### Configuration Tools (7)
 
 | Tool | Description |
 |------|-------------|
@@ -155,13 +163,26 @@ Add to your Cursor MCP settings:
 | `manage_suppliers` | Manage supplier information |
 | `manage_depreciations` | Manage depreciation schedules |
 
-### License Tools
+### Custom Field Tools (2)
+
+| Tool | Description |
+|------|-------------|
+| `manage_fields` | CRUD + associate/disassociate fields with fieldsets |
+| `manage_fieldsets` | CRUD operations for fieldsets |
+
+### License Tools (3)
 
 | Tool | Description |
 |------|-------------|
 | `manage_licenses` | CRUD operations for licenses |
 | `license_seats` | Manage license seat assignments |
 | `license_files` | Manage license file attachments |
+
+### Reporting Tools (1)
+
+| Tool | Description |
+|------|-------------|
+| `activity_reports` | Query activity logs and item history |
 
 ## Usage Examples
 
@@ -180,51 +201,78 @@ Add to your Cursor MCP settings:
 }
 ```
 
-### Checkout Asset to User
-
-```json
-{
-  "action": "checkout",
-  "asset_id": 123,
-  "checkout_data": {
-    "checkout_to_type": "user",
-    "assigned_to_id": 45,
-    "expected_checkin": "2025-12-31",
-    "note": "Issued for remote work"
-  }
-}
-```
-
-### List Assets with Search
-
-```json
-{
-  "action": "list",
-  "limit": 20,
-  "search": "macbook"
-}
-```
-
-### Create a Consumable
+### Create a User
 
 ```json
 {
   "action": "create",
-  "consumable_data": {
-    "name": "USB-C Cable",
-    "qty": 50,
-    "category_id": 3,
-    "min_amt": 10
+  "user_data": {
+    "first_name": "John",
+    "last_name": "Doe",
+    "username": "jdoe",
+    "email": "jdoe@example.com",
+    "password": "securepassword",
+    "password_confirmation": "securepassword",
+    "department_id": 1
   }
 }
 ```
 
-### Generate Asset Labels
+### Get Items Checked Out to User
 
 ```json
 {
-  "asset_ids": [123, 124, 125],
-  "save_path": "/tmp/asset_labels.pdf"
+  "user_id": 123,
+  "asset_type": "all"
+}
+```
+
+### Checkout Component to Asset
+
+```json
+{
+  "action": "checkout",
+  "component_id": 45,
+  "checkout_data": {
+    "assigned_to": 123,
+    "assigned_qty": 2,
+    "note": "RAM upgrade"
+  }
+}
+```
+
+### Query Activity Logs
+
+```json
+{
+  "action": "list",
+  "action_type": "checkout",
+  "limit": 50
+}
+```
+
+### Create Custom Field
+
+```json
+{
+  "action": "create",
+  "field_data": {
+    "name": "MAC Address",
+    "element": "text",
+    "format": "MAC"
+  }
+}
+```
+
+### Associate Field with Fieldset
+
+```json
+{
+  "action": "associate",
+  "field_id": 5,
+  "fieldset_id": 1,
+  "required": true,
+  "order": 1
 }
 ```
 

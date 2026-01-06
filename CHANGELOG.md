@@ -5,6 +5,38 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-01-06
+
+### Added
+- **User Management Tools**
+  - `manage_users` - Full CRUD for users with restore and /me endpoint
+  - `user_assets` - Get all assets, accessories, licenses checked out to a user
+
+- **Component Tools**
+  - `manage_components` - CRUD operations for components (RAM, drives, etc.)
+  - `component_operations` - Checkout/checkin components to assets
+
+- **Organization Tools**
+  - `manage_companies` - CRUD operations for multi-tenant company management
+  - `manage_departments` - CRUD operations for organizational departments
+  - `manage_groups` - CRUD operations for permission groups
+
+- **Custom Field Tools**
+  - `manage_fields` - CRUD for custom fields with associate/disassociate actions
+  - `manage_fieldsets` - CRUD for fieldsets with field listing
+
+- **Reporting Tools**
+  - `activity_reports` - Query activity logs with filtering by type, target, action
+
+- **New Pydantic Models**
+  - UserData, ComponentData, ComponentCheckout, CompanyData
+  - DepartmentData, GroupData, FieldData, FieldsetData
+
+### Changed
+- Server now provides 29 comprehensive tools (up from 19)
+- Updated module docstring with complete tool listing
+- Version bumped to 0.3.0
+
 ## [0.2.0] - 2025-01-06
 
 ### Added
@@ -48,5 +80,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UV package manager support
 - Stdio transport for MCP communication
 
+[0.3.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/v0.1.0

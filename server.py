@@ -1,18 +1,50 @@
 """Snipe-IT MCP Server
 
 A Model Context Protocol (MCP) server for managing Snipe-IT inventory.
-Provides tools for CRUD operations on:
-- Assets (manage_assets, asset_operations, asset_files, asset_labels, asset_maintenance, asset_licenses)
-- Licenses (manage_licenses, license_seats, license_files)
-- Accessories (manage_accessories, accessory_operations)
-- Consumables (manage_consumables)
-- Categories (manage_categories)
-- Manufacturers (manage_manufacturers)
-- Models (manage_models)
-- Status Labels (manage_status_labels)
-- Locations (manage_locations)
-- Suppliers (manage_suppliers)
-- Depreciations (manage_depreciations)
+Provides 29 tools for comprehensive CRUD operations on:
+
+Assets:
+- manage_assets: Create, read, update, delete, list assets
+- asset_operations: Checkout, checkin, audit, restore assets
+- asset_files: Upload, list, download, delete asset file attachments
+- asset_labels: Generate printable PDF labels for assets
+- asset_maintenance: Create maintenance records for assets
+- asset_licenses: View licenses checked out to assets
+
+Inventory:
+- manage_consumables: CRUD operations for consumable items
+- manage_components: CRUD operations for components (RAM, drives, etc.)
+- component_operations: Checkout/checkin components to assets
+- manage_accessories: CRUD operations for accessories
+- accessory_operations: Checkout/checkin accessories to users
+
+Licensing:
+- manage_licenses: CRUD operations for software licenses
+- license_seats: Manage license seat assignments
+- license_files: Manage license file attachments
+
+Users & Organization:
+- manage_users: CRUD operations for users, plus restore and /me endpoint
+- user_assets: Get all items checked out to a user
+- manage_companies: CRUD operations for companies
+- manage_departments: CRUD operations for departments
+- manage_groups: CRUD operations for permission groups
+
+System Configuration:
+- manage_categories: CRUD operations for categories
+- manage_manufacturers: CRUD operations for manufacturers
+- manage_models: CRUD operations for asset models
+- manage_status_labels: CRUD operations for status labels
+- manage_locations: CRUD operations for locations
+- manage_suppliers: CRUD operations for suppliers
+- manage_depreciations: CRUD operations for depreciation schedules
+
+Custom Fields:
+- manage_fields: CRUD operations for custom fields, plus associate/disassociate
+- manage_fieldsets: CRUD operations for fieldsets
+
+Reporting:
+- activity_reports: Query activity logs and item history
 """
 
 import os
@@ -347,6 +379,96 @@ class AccessoryCheckout(BaseModel):
     """Model for accessory checkout operations."""
     assigned_to: int | None = Field(None, description="User ID to checkout to")
     note: str | None = Field(None, description="Checkout notes")
+
+
+class UserData(BaseModel):
+    """Model for user data used in create/update operations."""
+    first_name: str | None = Field(None, description="First name")
+    last_name: str | None = Field(None, description="Last name")
+    username: str | None = Field(None, description="Username for login")
+    password: str | None = Field(None, description="Password (required for create)")
+    password_confirmation: str | None = Field(None, description="Password confirmation (required for create)")
+    email: str | None = Field(None, description="Email address")
+    permissions: dict | None = Field(None, description="User permissions object")
+    activated: bool | None = Field(None, description="Whether user account is activated")
+    phone: str | None = Field(None, description="Phone number")
+    jobtitle: str | None = Field(None, description="Job title")
+    manager_id: int | None = Field(None, description="Manager user ID")
+    employee_num: str | None = Field(None, description="Employee number")
+    department_id: int | None = Field(None, description="Department ID")
+    company_id: int | None = Field(None, description="Company ID")
+    location_id: int | None = Field(None, description="Location ID")
+    notes: str | None = Field(None, description="Additional notes")
+    groups: list[int] | None = Field(None, description="List of group IDs")
+    ldap_import: bool | None = Field(None, description="Whether user was imported from LDAP")
+
+
+class ComponentData(BaseModel):
+    """Model for component data used in create/update operations."""
+    name: str | None = Field(None, description="Component name")
+    qty: int | None = Field(None, description="Total quantity")
+    category_id: int | None = Field(None, description="Category ID (must be component-type)")
+    company_id: int | None = Field(None, description="Company ID")
+    location_id: int | None = Field(None, description="Location ID")
+    manufacturer_id: int | None = Field(None, description="Manufacturer ID")
+    supplier_id: int | None = Field(None, description="Supplier ID")
+    model_number: str | None = Field(None, description="Model number")
+    serial: str | None = Field(None, description="Serial number")
+    order_number: str | None = Field(None, description="Order number")
+    purchase_date: str | None = Field(None, description="Purchase date (YYYY-MM-DD)")
+    purchase_cost: float | None = Field(None, description="Purchase cost per unit")
+    min_amt: int | None = Field(None, description="Minimum quantity threshold for alerts")
+    notes: str | None = Field(None, description="Additional notes")
+
+
+class ComponentCheckout(BaseModel):
+    """Model for component checkout operations."""
+    assigned_to: int = Field(..., description="Asset ID to checkout component to")
+    assigned_qty: int = Field(1, description="Quantity to checkout")
+    note: str | None = Field(None, description="Checkout notes")
+
+
+class CompanyData(BaseModel):
+    """Model for company data used in create/update operations."""
+    name: str | None = Field(None, description="Company name")
+    image: str | None = Field(None, description="Image filename")
+
+
+class DepartmentData(BaseModel):
+    """Model for department data used in create/update operations."""
+    name: str | None = Field(None, description="Department name")
+    company_id: int | None = Field(None, description="Company ID")
+    location_id: int | None = Field(None, description="Location ID")
+    manager_id: int | None = Field(None, description="Manager user ID")
+    notes: str | None = Field(None, description="Additional notes")
+    image: str | None = Field(None, description="Image filename")
+
+
+class GroupData(BaseModel):
+    """Model for group data used in create/update operations."""
+    name: str | None = Field(None, description="Group name")
+    permissions: dict | None = Field(None, description="Permissions object defining group access rights")
+
+
+class FieldData(BaseModel):
+    """Model for custom field data used in create/update operations."""
+    name: str | None = Field(None, description="Field name")
+    element: Literal["text", "textarea", "listbox", "checkbox", "radio"] | None = Field(
+        None, description="Field element type"
+    )
+    field_values: str | None = Field(None, description="Possible values for listbox/radio (newline separated)")
+    field_encrypted: bool | None = Field(None, description="Whether field value is encrypted")
+    show_in_email: bool | None = Field(None, description="Show field in emails")
+    help_text: str | None = Field(None, description="Help text displayed with field")
+    format: Literal["ANY", "ALPHA", "ALPHA-DASH", "NUMERIC", "ALPHA-NUMERIC", "EMAIL", "DATE", "URL", "IP", "IPV4", "IPV6", "MAC", "BOOLEAN", "REGEX"] | None = Field(
+        None, description="Validation format for the field"
+    )
+    custom_format: str | None = Field(None, description="Custom regex pattern when format is REGEX")
+
+
+class FieldsetData(BaseModel):
+    """Model for fieldset data used in create/update operations."""
+    name: str | None = Field(None, description="Fieldset name")
 
 
 # ============================================================================
@@ -2904,6 +3026,1362 @@ def accessory_operations(
         return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
     except Exception as e:
         logger.error(f"Unexpected error in accessory_operations: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# User Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def manage_users(
+    action: Annotated[
+        Literal["create", "get", "list", "update", "delete", "restore", "me"],
+        "The action to perform on users"
+    ],
+    user_id: Annotated[int | None, "User ID (required for get, update, delete, restore)"] = None,
+    user_data: Annotated[UserData | None, "User data (required for create, optional for update)"] = None,
+    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    search: Annotated[str | None, "Search query (for list action)"] = None,
+    sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
+    order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
+    username: Annotated[str | None, "Username for exact match (for list action)"] = None,
+    email: Annotated[str | None, "Email for exact match (for list action)"] = None,
+) -> dict[str, Any]:
+    """Manage Snipe-IT users with CRUD operations.
+
+    This tool handles all user operations:
+    - create: Create a new user (requires user_data with username, password, first_name)
+    - get: Retrieve a single user by ID
+    - list: List users with optional pagination and filtering
+    - update: Update an existing user (requires user_id and user_data)
+    - delete: Delete a user (requires user_id)
+    - restore: Restore a soft-deleted user (requires user_id)
+    - me: Get the currently authenticated user
+
+    Returns:
+        dict: Result of the operation including success status and data
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "create":
+            if not user_data:
+                return {"success": False, "error": "user_data is required for create action"}
+
+            if not user_data.username or not user_data.password or not user_data.first_name:
+                return {
+                    "success": False,
+                    "error": "username, password, and first_name are required to create a user"
+                }
+
+            create_payload = {k: v for k, v in user_data.model_dump().items() if v is not None}
+            result = api.create("users", create_payload)
+
+            return {
+                "success": True,
+                "action": "create",
+                "user": {
+                    "id": result.get("payload", {}).get("id") or result.get("id"),
+                    "username": user_data.username,
+                    "name": f"{user_data.first_name} {user_data.last_name or ''}".strip(),
+                }
+            }
+
+        elif action == "get":
+            if not user_id:
+                return {"success": False, "error": "user_id is required for get action"}
+
+            result = api.get("users", user_id)
+
+            return {
+                "success": True,
+                "action": "get",
+                "user": result
+            }
+
+        elif action == "list":
+            params = {"limit": limit, "offset": offset}
+            if search:
+                params["search"] = search
+            if sort:
+                params["sort"] = sort
+            if order:
+                params["order"] = order
+            if username:
+                params["username"] = username
+            if email:
+                params["email"] = email
+
+            users = api.list("users", **params)
+
+            users_list = [
+                {
+                    "id": user.get("id"),
+                    "username": user.get("username"),
+                    "name": user.get("name"),
+                    "email": user.get("email"),
+                    "department": user.get("department"),
+                    "activated": user.get("activated"),
+                }
+                for user in users
+            ]
+
+            return {
+                "success": True,
+                "action": "list",
+                "count": len(users_list),
+                "users": users_list
+            }
+
+        elif action == "update":
+            if not user_id:
+                return {"success": False, "error": "user_id is required for update action"}
+            if not user_data:
+                return {"success": False, "error": "user_data is required for update action"}
+
+            update_payload = {k: v for k, v in user_data.model_dump().items() if v is not None}
+            result = api.update("users", user_id, update_payload)
+
+            return {
+                "success": True,
+                "action": "update",
+                "user_id": user_id,
+                "result": result
+            }
+
+        elif action == "delete":
+            if not user_id:
+                return {"success": False, "error": "user_id is required for delete action"}
+
+            result = api.delete("users", user_id)
+
+            return {
+                "success": True,
+                "action": "delete",
+                "user_id": user_id,
+                "message": "User deleted successfully"
+            }
+
+        elif action == "restore":
+            if not user_id:
+                return {"success": False, "error": "user_id is required for restore action"}
+
+            result = api._request("POST", f"users/{user_id}/restore")
+
+            return {
+                "success": True,
+                "action": "restore",
+                "user_id": user_id,
+                "message": "User restored successfully"
+            }
+
+        elif action == "me":
+            result = api._request("GET", "users/me")
+
+            return {
+                "success": True,
+                "action": "me",
+                "user": result
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"User not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in manage_users: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+    }
+)
+def user_assets(
+    user_id: Annotated[int, "User ID"],
+    asset_type: Annotated[
+        Literal["assets", "accessories", "licenses", "all"],
+        "Type of items to retrieve"
+    ] = "all",
+) -> dict[str, Any]:
+    """Get items checked out to a user.
+
+    Retrieves assets, accessories, and/or licenses that are currently
+    checked out to the specified user.
+
+    Returns:
+        dict: Items checked out to the user
+    """
+    try:
+        api = get_direct_api()
+        result = {}
+
+        if asset_type in ("assets", "all"):
+            assets = api._request("GET", f"users/{user_id}/assets")
+            result["assets"] = assets.get("rows", [])
+
+        if asset_type in ("accessories", "all"):
+            accessories = api._request("GET", f"users/{user_id}/accessories")
+            result["accessories"] = accessories.get("rows", [])
+
+        if asset_type in ("licenses", "all"):
+            licenses = api._request("GET", f"users/{user_id}/licenses")
+            result["licenses"] = licenses.get("rows", [])
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            **result
+        }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"User not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in user_assets: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Component Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def manage_components(
+    action: Annotated[
+        Literal["create", "get", "list", "update", "delete"],
+        "The action to perform on components"
+    ],
+    component_id: Annotated[int | None, "Component ID (required for get, update, delete)"] = None,
+    component_data: Annotated[ComponentData | None, "Component data (required for create, optional for update)"] = None,
+    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    search: Annotated[str | None, "Search query (for list action)"] = None,
+    sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
+    order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
+) -> dict[str, Any]:
+    """Manage Snipe-IT components with CRUD operations.
+
+    Components are items that can be checked out to assets (not users).
+    Examples: RAM, hard drives, CPUs, etc.
+
+    Actions:
+    - create: Create a new component (requires component_data with name, qty, category_id)
+    - get: Retrieve a single component by ID
+    - list: List components with optional pagination and filtering
+    - update: Update an existing component
+    - delete: Delete a component
+
+    Returns:
+        dict: Result of the operation including success status and data
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "create":
+            if not component_data:
+                return {"success": False, "error": "component_data is required for create action"}
+
+            if not component_data.name or not component_data.qty or not component_data.category_id:
+                return {
+                    "success": False,
+                    "error": "name, qty, and category_id are required to create a component"
+                }
+
+            create_payload = {k: v for k, v in component_data.model_dump().items() if v is not None}
+            result = api.create("components", create_payload)
+
+            return {
+                "success": True,
+                "action": "create",
+                "component": result
+            }
+
+        elif action == "get":
+            if not component_id:
+                return {"success": False, "error": "component_id is required for get action"}
+
+            result = api.get("components", component_id)
+
+            return {
+                "success": True,
+                "action": "get",
+                "component": result
+            }
+
+        elif action == "list":
+            params = {"limit": limit, "offset": offset}
+            if search:
+                params["search"] = search
+            if sort:
+                params["sort"] = sort
+            if order:
+                params["order"] = order
+
+            components = api.list("components", **params)
+
+            components_list = [
+                {
+                    "id": comp.get("id"),
+                    "name": comp.get("name"),
+                    "qty": comp.get("qty"),
+                    "remaining": comp.get("remaining"),
+                    "category": comp.get("category"),
+                    "location": comp.get("location"),
+                }
+                for comp in components
+            ]
+
+            return {
+                "success": True,
+                "action": "list",
+                "count": len(components_list),
+                "components": components_list
+            }
+
+        elif action == "update":
+            if not component_id:
+                return {"success": False, "error": "component_id is required for update action"}
+            if not component_data:
+                return {"success": False, "error": "component_data is required for update action"}
+
+            update_payload = {k: v for k, v in component_data.model_dump().items() if v is not None}
+            result = api.update("components", component_id, update_payload)
+
+            return {
+                "success": True,
+                "action": "update",
+                "component_id": component_id,
+                "result": result
+            }
+
+        elif action == "delete":
+            if not component_id:
+                return {"success": False, "error": "component_id is required for delete action"}
+
+            result = api.delete("components", component_id)
+
+            return {
+                "success": True,
+                "action": "delete",
+                "component_id": component_id,
+                "message": "Component deleted successfully"
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Component not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in manage_components: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+    }
+)
+def component_operations(
+    action: Annotated[
+        Literal["checkout", "checkin", "list_assets"],
+        "The operation to perform on the component"
+    ],
+    component_id: Annotated[int, "Component ID"],
+    checkout_data: Annotated[ComponentCheckout | None, "Checkout data (required for checkout action)"] = None,
+    checkout_id: Annotated[int | None, "Component asset ID from checkout record (required for checkin)"] = None,
+) -> dict[str, Any]:
+    """Perform checkout/checkin operations on components.
+
+    Components can be checked out to assets (not users). Each checkout
+    decrements the available quantity.
+
+    Operations:
+    - checkout: Checkout component(s) to an asset (requires checkout_data with assigned_to asset ID)
+    - checkin: Checkin component(s) from an asset (requires checkout_id)
+    - list_assets: List all assets that have this component checked out
+
+    Returns:
+        dict: Result of the operation including success status and data
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "checkout":
+            if not checkout_data:
+                return {"success": False, "error": "checkout_data is required for checkout action"}
+
+            checkout_payload = {k: v for k, v in checkout_data.model_dump().items() if v is not None}
+            result = api._request("POST", f"components/{component_id}/checkout", json=checkout_payload)
+
+            return {
+                "success": True,
+                "action": "checkout",
+                "component_id": component_id,
+                "message": f"Component checked out to asset {checkout_data.assigned_to}",
+                "result": result
+            }
+
+        elif action == "checkin":
+            if not checkout_id:
+                return {"success": False, "error": "checkout_id is required for checkin action"}
+
+            result = api._request("POST", f"components/{component_id}/checkin/{checkout_id}")
+
+            return {
+                "success": True,
+                "action": "checkin",
+                "component_id": component_id,
+                "checkout_id": checkout_id,
+                "message": "Component checked in successfully",
+                "result": result
+            }
+
+        elif action == "list_assets":
+            result = api._request("GET", f"components/{component_id}/assets")
+            assets = result.get("rows", [])
+
+            return {
+                "success": True,
+                "action": "list_assets",
+                "component_id": component_id,
+                "count": len(assets),
+                "assets": assets
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Component not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in component_operations: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Company Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def manage_companies(
+    action: Annotated[
+        Literal["create", "get", "list", "update", "delete"],
+        "The action to perform on companies"
+    ],
+    company_id: Annotated[int | None, "Company ID (required for get, update, delete)"] = None,
+    company_data: Annotated[CompanyData | None, "Company data (required for create, optional for update)"] = None,
+    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    search: Annotated[str | None, "Search query (for list action)"] = None,
+    sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
+    order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
+) -> dict[str, Any]:
+    """Manage Snipe-IT companies with CRUD operations.
+
+    Companies allow you to segment your assets and users by organization.
+    Useful for multi-tenant installations or tracking assets by subsidiary.
+
+    Actions:
+    - create: Create a new company (requires company_data with name)
+    - get: Retrieve a single company by ID
+    - list: List companies with optional pagination and filtering
+    - update: Update an existing company
+    - delete: Delete a company
+
+    Returns:
+        dict: Result of the operation including success status and data
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "create":
+            if not company_data:
+                return {"success": False, "error": "company_data is required for create action"}
+
+            if not company_data.name:
+                return {"success": False, "error": "name is required to create a company"}
+
+            create_payload = {k: v for k, v in company_data.model_dump().items() if v is not None}
+            result = api.create("companies", create_payload)
+
+            return {
+                "success": True,
+                "action": "create",
+                "company": result
+            }
+
+        elif action == "get":
+            if not company_id:
+                return {"success": False, "error": "company_id is required for get action"}
+
+            result = api.get("companies", company_id)
+
+            return {
+                "success": True,
+                "action": "get",
+                "company": result
+            }
+
+        elif action == "list":
+            params = {"limit": limit, "offset": offset}
+            if search:
+                params["search"] = search
+            if sort:
+                params["sort"] = sort
+            if order:
+                params["order"] = order
+
+            companies = api.list("companies", **params)
+
+            companies_list = [
+                {
+                    "id": comp.get("id"),
+                    "name": comp.get("name"),
+                    "assets_count": comp.get("assets_count"),
+                    "licenses_count": comp.get("licenses_count"),
+                    "accessories_count": comp.get("accessories_count"),
+                    "users_count": comp.get("users_count"),
+                }
+                for comp in companies
+            ]
+
+            return {
+                "success": True,
+                "action": "list",
+                "count": len(companies_list),
+                "companies": companies_list
+            }
+
+        elif action == "update":
+            if not company_id:
+                return {"success": False, "error": "company_id is required for update action"}
+            if not company_data:
+                return {"success": False, "error": "company_data is required for update action"}
+
+            update_payload = {k: v for k, v in company_data.model_dump().items() if v is not None}
+            result = api.update("companies", company_id, update_payload)
+
+            return {
+                "success": True,
+                "action": "update",
+                "company_id": company_id,
+                "result": result
+            }
+
+        elif action == "delete":
+            if not company_id:
+                return {"success": False, "error": "company_id is required for delete action"}
+
+            result = api.delete("companies", company_id)
+
+            return {
+                "success": True,
+                "action": "delete",
+                "company_id": company_id,
+                "message": "Company deleted successfully"
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Company not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in manage_companies: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Department Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def manage_departments(
+    action: Annotated[
+        Literal["create", "get", "list", "update", "delete"],
+        "The action to perform on departments"
+    ],
+    department_id: Annotated[int | None, "Department ID (required for get, update, delete)"] = None,
+    department_data: Annotated[DepartmentData | None, "Department data (required for create, optional for update)"] = None,
+    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    search: Annotated[str | None, "Search query (for list action)"] = None,
+    sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
+    order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
+) -> dict[str, Any]:
+    """Manage Snipe-IT departments with CRUD operations.
+
+    Departments are organizational units within a company that can be
+    assigned to users.
+
+    Actions:
+    - create: Create a new department (requires department_data with name)
+    - get: Retrieve a single department by ID
+    - list: List departments with optional pagination and filtering
+    - update: Update an existing department
+    - delete: Delete a department
+
+    Returns:
+        dict: Result of the operation including success status and data
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "create":
+            if not department_data:
+                return {"success": False, "error": "department_data is required for create action"}
+
+            if not department_data.name:
+                return {"success": False, "error": "name is required to create a department"}
+
+            create_payload = {k: v for k, v in department_data.model_dump().items() if v is not None}
+            result = api.create("departments", create_payload)
+
+            return {
+                "success": True,
+                "action": "create",
+                "department": result
+            }
+
+        elif action == "get":
+            if not department_id:
+                return {"success": False, "error": "department_id is required for get action"}
+
+            result = api.get("departments", department_id)
+
+            return {
+                "success": True,
+                "action": "get",
+                "department": result
+            }
+
+        elif action == "list":
+            params = {"limit": limit, "offset": offset}
+            if search:
+                params["search"] = search
+            if sort:
+                params["sort"] = sort
+            if order:
+                params["order"] = order
+
+            departments = api.list("departments", **params)
+
+            departments_list = [
+                {
+                    "id": dept.get("id"),
+                    "name": dept.get("name"),
+                    "company": dept.get("company"),
+                    "manager": dept.get("manager"),
+                    "location": dept.get("location"),
+                    "users_count": dept.get("users_count"),
+                }
+                for dept in departments
+            ]
+
+            return {
+                "success": True,
+                "action": "list",
+                "count": len(departments_list),
+                "departments": departments_list
+            }
+
+        elif action == "update":
+            if not department_id:
+                return {"success": False, "error": "department_id is required for update action"}
+            if not department_data:
+                return {"success": False, "error": "department_data is required for update action"}
+
+            update_payload = {k: v for k, v in department_data.model_dump().items() if v is not None}
+            result = api.update("departments", department_id, update_payload)
+
+            return {
+                "success": True,
+                "action": "update",
+                "department_id": department_id,
+                "result": result
+            }
+
+        elif action == "delete":
+            if not department_id:
+                return {"success": False, "error": "department_id is required for delete action"}
+
+            result = api.delete("departments", department_id)
+
+            return {
+                "success": True,
+                "action": "delete",
+                "department_id": department_id,
+                "message": "Department deleted successfully"
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Department not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in manage_departments: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Group Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def manage_groups(
+    action: Annotated[
+        Literal["create", "get", "list", "update", "delete"],
+        "The action to perform on groups"
+    ],
+    group_id: Annotated[int | None, "Group ID (required for get, update, delete)"] = None,
+    group_data: Annotated[GroupData | None, "Group data (required for create, optional for update)"] = None,
+    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    search: Annotated[str | None, "Search query (for list action)"] = None,
+) -> dict[str, Any]:
+    """Manage Snipe-IT permission groups with CRUD operations.
+
+    Groups are used to manage permissions for multiple users at once.
+    Users can belong to multiple groups, and permissions are cumulative.
+
+    Actions:
+    - create: Create a new group (requires group_data with name)
+    - get: Retrieve a single group by ID
+    - list: List groups with optional pagination and filtering
+    - update: Update an existing group (including permissions)
+    - delete: Delete a group
+
+    Returns:
+        dict: Result of the operation including success status and data
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "create":
+            if not group_data:
+                return {"success": False, "error": "group_data is required for create action"}
+
+            if not group_data.name:
+                return {"success": False, "error": "name is required to create a group"}
+
+            create_payload = {k: v for k, v in group_data.model_dump().items() if v is not None}
+            result = api.create("groups", create_payload)
+
+            return {
+                "success": True,
+                "action": "create",
+                "group": result
+            }
+
+        elif action == "get":
+            if not group_id:
+                return {"success": False, "error": "group_id is required for get action"}
+
+            result = api.get("groups", group_id)
+
+            return {
+                "success": True,
+                "action": "get",
+                "group": result
+            }
+
+        elif action == "list":
+            params = {"limit": limit, "offset": offset}
+            if search:
+                params["search"] = search
+
+            groups = api.list("groups", **params)
+
+            groups_list = [
+                {
+                    "id": grp.get("id"),
+                    "name": grp.get("name"),
+                    "users_count": grp.get("users_count"),
+                    "created_at": grp.get("created_at"),
+                }
+                for grp in groups
+            ]
+
+            return {
+                "success": True,
+                "action": "list",
+                "count": len(groups_list),
+                "groups": groups_list
+            }
+
+        elif action == "update":
+            if not group_id:
+                return {"success": False, "error": "group_id is required for update action"}
+            if not group_data:
+                return {"success": False, "error": "group_data is required for update action"}
+
+            update_payload = {k: v for k, v in group_data.model_dump().items() if v is not None}
+            result = api.update("groups", group_id, update_payload)
+
+            return {
+                "success": True,
+                "action": "update",
+                "group_id": group_id,
+                "result": result
+            }
+
+        elif action == "delete":
+            if not group_id:
+                return {"success": False, "error": "group_id is required for delete action"}
+
+            result = api.delete("groups", group_id)
+
+            return {
+                "success": True,
+                "action": "delete",
+                "group_id": group_id,
+                "message": "Group deleted successfully"
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Group not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in manage_groups: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Custom Field Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def manage_fields(
+    action: Annotated[
+        Literal["create", "get", "list", "update", "delete", "associate", "disassociate"],
+        "The action to perform on custom fields"
+    ],
+    field_id: Annotated[int | None, "Field ID (required for get, update, delete, associate, disassociate)"] = None,
+    field_data: Annotated[FieldData | None, "Field data (required for create, optional for update)"] = None,
+    fieldset_id: Annotated[int | None, "Fieldset ID (required for associate/disassociate actions)"] = None,
+    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    search: Annotated[str | None, "Search query (for list action)"] = None,
+    required: Annotated[bool | None, "Whether field is required in fieldset (for associate action)"] = False,
+    order: Annotated[int | None, "Display order in fieldset (for associate action)"] = None,
+) -> dict[str, Any]:
+    """Manage Snipe-IT custom fields with CRUD operations.
+
+    Custom fields allow you to add additional data fields to assets beyond
+    the built-in fields. Fields must be associated with fieldsets to be used.
+
+    Actions:
+    - create: Create a new custom field (requires field_data with name, element)
+    - get: Retrieve a single field by ID
+    - list: List fields with optional pagination and filtering
+    - update: Update an existing field
+    - delete: Delete a field
+    - associate: Associate a field with a fieldset
+    - disassociate: Remove a field from a fieldset
+
+    Returns:
+        dict: Result of the operation including success status and data
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "create":
+            if not field_data:
+                return {"success": False, "error": "field_data is required for create action"}
+
+            if not field_data.name or not field_data.element:
+                return {"success": False, "error": "name and element are required to create a field"}
+
+            create_payload = {k: v for k, v in field_data.model_dump().items() if v is not None}
+            result = api.create("fields", create_payload)
+
+            return {
+                "success": True,
+                "action": "create",
+                "field": result
+            }
+
+        elif action == "get":
+            if not field_id:
+                return {"success": False, "error": "field_id is required for get action"}
+
+            result = api.get("fields", field_id)
+
+            return {
+                "success": True,
+                "action": "get",
+                "field": result
+            }
+
+        elif action == "list":
+            params = {"limit": limit, "offset": offset}
+            if search:
+                params["search"] = search
+
+            fields = api.list("fields", **params)
+
+            fields_list = [
+                {
+                    "id": fld.get("id"),
+                    "name": fld.get("name"),
+                    "db_column_name": fld.get("db_column_name"),
+                    "element": fld.get("element"),
+                    "format": fld.get("format"),
+                    "field_encrypted": fld.get("field_encrypted"),
+                }
+                for fld in fields
+            ]
+
+            return {
+                "success": True,
+                "action": "list",
+                "count": len(fields_list),
+                "fields": fields_list
+            }
+
+        elif action == "update":
+            if not field_id:
+                return {"success": False, "error": "field_id is required for update action"}
+            if not field_data:
+                return {"success": False, "error": "field_data is required for update action"}
+
+            update_payload = {k: v for k, v in field_data.model_dump().items() if v is not None}
+            result = api.update("fields", field_id, update_payload)
+
+            return {
+                "success": True,
+                "action": "update",
+                "field_id": field_id,
+                "result": result
+            }
+
+        elif action == "delete":
+            if not field_id:
+                return {"success": False, "error": "field_id is required for delete action"}
+
+            result = api.delete("fields", field_id)
+
+            return {
+                "success": True,
+                "action": "delete",
+                "field_id": field_id,
+                "message": "Field deleted successfully"
+            }
+
+        elif action == "associate":
+            if not field_id or not fieldset_id:
+                return {"success": False, "error": "field_id and fieldset_id are required for associate action"}
+
+            payload = {"required": required}
+            if order is not None:
+                payload["order"] = order
+
+            result = api._request("POST", f"fields/{field_id}/associate/{fieldset_id}", json=payload)
+
+            return {
+                "success": True,
+                "action": "associate",
+                "field_id": field_id,
+                "fieldset_id": fieldset_id,
+                "message": "Field associated with fieldset successfully"
+            }
+
+        elif action == "disassociate":
+            if not field_id or not fieldset_id:
+                return {"success": False, "error": "field_id and fieldset_id are required for disassociate action"}
+
+            result = api._request("POST", f"fields/{field_id}/disassociate/{fieldset_id}")
+
+            return {
+                "success": True,
+                "action": "disassociate",
+                "field_id": field_id,
+                "fieldset_id": fieldset_id,
+                "message": "Field disassociated from fieldset successfully"
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Field not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in manage_fields: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def manage_fieldsets(
+    action: Annotated[
+        Literal["create", "get", "list", "update", "delete", "fields"],
+        "The action to perform on fieldsets"
+    ],
+    fieldset_id: Annotated[int | None, "Fieldset ID (required for get, update, delete, fields)"] = None,
+    fieldset_data: Annotated[FieldsetData | None, "Fieldset data (required for create, optional for update)"] = None,
+    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+) -> dict[str, Any]:
+    """Manage Snipe-IT fieldsets with CRUD operations.
+
+    Fieldsets are collections of custom fields that can be assigned to asset
+    models. Each model can have one fieldset, and all assets of that model
+    will have the custom fields defined in the fieldset.
+
+    Actions:
+    - create: Create a new fieldset (requires fieldset_data with name)
+    - get: Retrieve a single fieldset by ID
+    - list: List fieldsets with optional pagination
+    - update: Update an existing fieldset
+    - delete: Delete a fieldset
+    - fields: List all fields in a fieldset
+
+    Returns:
+        dict: Result of the operation including success status and data
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "create":
+            if not fieldset_data:
+                return {"success": False, "error": "fieldset_data is required for create action"}
+
+            if not fieldset_data.name:
+                return {"success": False, "error": "name is required to create a fieldset"}
+
+            create_payload = {k: v for k, v in fieldset_data.model_dump().items() if v is not None}
+            result = api.create("fieldsets", create_payload)
+
+            return {
+                "success": True,
+                "action": "create",
+                "fieldset": result
+            }
+
+        elif action == "get":
+            if not fieldset_id:
+                return {"success": False, "error": "fieldset_id is required for get action"}
+
+            result = api.get("fieldsets", fieldset_id)
+
+            return {
+                "success": True,
+                "action": "get",
+                "fieldset": result
+            }
+
+        elif action == "list":
+            params = {"limit": limit, "offset": offset}
+            fieldsets = api.list("fieldsets", **params)
+
+            fieldsets_list = [
+                {
+                    "id": fs.get("id"),
+                    "name": fs.get("name"),
+                    "fields_count": fs.get("fields_count"),
+                    "models_count": fs.get("models_count"),
+                }
+                for fs in fieldsets
+            ]
+
+            return {
+                "success": True,
+                "action": "list",
+                "count": len(fieldsets_list),
+                "fieldsets": fieldsets_list
+            }
+
+        elif action == "update":
+            if not fieldset_id:
+                return {"success": False, "error": "fieldset_id is required for update action"}
+            if not fieldset_data:
+                return {"success": False, "error": "fieldset_data is required for update action"}
+
+            update_payload = {k: v for k, v in fieldset_data.model_dump().items() if v is not None}
+            result = api.update("fieldsets", fieldset_id, update_payload)
+
+            return {
+                "success": True,
+                "action": "update",
+                "fieldset_id": fieldset_id,
+                "result": result
+            }
+
+        elif action == "delete":
+            if not fieldset_id:
+                return {"success": False, "error": "fieldset_id is required for delete action"}
+
+            result = api.delete("fieldsets", fieldset_id)
+
+            return {
+                "success": True,
+                "action": "delete",
+                "fieldset_id": fieldset_id,
+                "message": "Fieldset deleted successfully"
+            }
+
+        elif action == "fields":
+            if not fieldset_id:
+                return {"success": False, "error": "fieldset_id is required for fields action"}
+
+            result = api._request("GET", f"fieldsets/{fieldset_id}/fields")
+            fields = result.get("rows", []) if isinstance(result, dict) else result
+
+            return {
+                "success": True,
+                "action": "fields",
+                "fieldset_id": fieldset_id,
+                "fields": fields
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Fieldset not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in manage_fieldsets: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Activity/Reports Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+    }
+)
+def activity_reports(
+    action: Annotated[
+        Literal["list", "item_activity"],
+        "The action to perform"
+    ],
+    limit: Annotated[int | None, "Number of results to return"] = 50,
+    offset: Annotated[int | None, "Number of results to skip"] = 0,
+    search: Annotated[str | None, "Search query"] = None,
+    target_type: Annotated[str | None, "Filter by target type (e.g., 'asset', 'license', 'user')"] = None,
+    target_id: Annotated[int | None, "Filter by target ID"] = None,
+    action_type: Annotated[str | None, "Filter by action type (e.g., 'checkout', 'checkin', 'update')"] = None,
+    item_type: Annotated[str | None, "Item type for item_activity (e.g., 'asset', 'license', 'accessory')"] = None,
+    item_id: Annotated[int | None, "Item ID for item_activity"] = None,
+) -> dict[str, Any]:
+    """Query Snipe-IT activity logs and reports.
+
+    Provides access to the activity log which tracks all actions performed
+    in Snipe-IT including checkouts, checkins, updates, and more.
+
+    Actions:
+    - list: List activity records with optional filtering
+    - item_activity: Get activity for a specific item (requires item_type and item_id)
+
+    Returns:
+        dict: Activity records matching the query
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "list":
+            params = {"limit": limit, "offset": offset}
+            if search:
+                params["search"] = search
+            if target_type:
+                params["target_type"] = target_type
+            if target_id:
+                params["target_id"] = target_id
+            if action_type:
+                params["action_type"] = action_type
+
+            result = api._request("GET", "reports/activity", params=params)
+            activities = result.get("rows", [])
+
+            activities_list = [
+                {
+                    "id": act.get("id"),
+                    "action_type": act.get("action_type"),
+                    "target_type": act.get("target_type"),
+                    "target": act.get("target"),
+                    "item": act.get("item"),
+                    "admin": act.get("admin"),
+                    "created_at": act.get("created_at"),
+                    "note": act.get("note"),
+                }
+                for act in activities
+            ]
+
+            return {
+                "success": True,
+                "action": "list",
+                "count": len(activities_list),
+                "activities": activities_list
+            }
+
+        elif action == "item_activity":
+            if not item_type or not item_id:
+                return {"success": False, "error": "item_type and item_id are required for item_activity action"}
+
+            # Map item types to their API endpoints
+            type_map = {
+                "asset": "hardware",
+                "hardware": "hardware",
+                "license": "licenses",
+                "accessory": "accessories",
+                "consumable": "consumables",
+                "component": "components",
+                "user": "users",
+            }
+
+            endpoint_type = type_map.get(item_type.lower())
+            if not endpoint_type:
+                return {"success": False, "error": f"Invalid item_type: {item_type}. Valid types: {list(type_map.keys())}"}
+
+            params = {"limit": limit, "offset": offset}
+            result = api._request("GET", f"reports/activity", params={
+                **params,
+                "item_type": endpoint_type,
+                "item_id": item_id,
+            })
+            activities = result.get("rows", [])
+
+            return {
+                "success": True,
+                "action": "item_activity",
+                "item_type": item_type,
+                "item_id": item_id,
+                "count": len(activities),
+                "activities": activities
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Resource not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in activity_reports: {e}", exc_info=True)
         return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
 
