@@ -1,6 +1,6 @@
 [project]
 name = "snipeit-mcp"
-version = "0.3.0"
+version = "1.2.0"
 description = "MCP server for Snipe-IT inventory management system"
 readme = "README.md"
 license = "MIT"
@@ -12,10 +12,21 @@ dependencies = [
     "snipeit-api @ git+https://github.com/lfctech/snipeit-python-api@main",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=7.0.0", "pytest-asyncio>=0.21.0", "responses>=0.23.0"]
+
 [project.urls]
 Homepage = "https://github.com/jameshgordy/snipeit-mcp"
 Repository = "https://github.com/jameshgordy/snipeit-mcp"
 Issues = "https://github.com/jameshgordy/snipeit-mcp/issues"
 
+[project.scripts]
+snipeit-mcp = "server:main"
+
 [tool.uv]
-package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"

@@ -5,6 +5,63 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-01-21
+
+### Added
+- **Asset Lookup Enhancements**
+  - Direct bytag/byserial API endpoints for reliable barcode scanning workflows
+  - Filter parameters: status_id, model_id, company_id, location_id, category_id, manufacturer_id, assigned_to
+  - Documented sortable columns for asset listing
+
+- **CSV Import Management** (`manage_imports`)
+  - Upload CSV files for bulk import
+  - Map columns to Snipe-IT fields
+  - Process imports with optional database backup
+  - List, get, update, and delete import files
+
+- **Relationship Query Endpoints**
+  - `manage_locations`: Added `assets` and `users` actions to list items by location
+  - `manage_status_labels`: Added `assets` action to list assets by status
+  - `manage_models`: Added `assets` action to list assets by model
+  - `status_summary`: New tool to get asset counts grouped by status label
+
+- **Asset Checkout Requests** (`asset_requests`)
+  - Submit checkout requests for requestable assets
+  - Cancel pending checkout requests
+
+- **User Management Enhancements**
+  - `user_assets`: Added `consumables` and `eulas` options
+  - `user_two_factor`: New tool to reset user 2FA (admin function)
+
+- **Audit Tracking** (`audit_tracking`)
+  - List assets due for audit
+  - List overdue assets
+  - Summary view with counts and sample assets
+
+- **System Administration Tools**
+  - `system_info`: Get Snipe-IT version information
+  - `manage_backups`: List and download database backups
+  - `ldap_operations`: LDAP sync and connection testing
+
+- **Model File Attachments** (`model_files`)
+  - Upload, list, download, and delete files attached to asset models
+
+- **Custom Field Ordering**
+  - `manage_fieldsets`: Added `reorder` action to control field display order
+
+- **New Pydantic Models**
+  - `ImportData` for import configuration
+  - `AssetRequestData` for checkout request details
+
+### Changed
+- Server now provides 39 comprehensive tools (up from 29)
+- Updated module docstring with complete tool listing
+- Version bumped to 1.2.0
+
+### Technical
+- Added test suite with pytest
+- Added test dependencies as optional extras
+
 ## [0.3.0] - 2025-01-06
 
 ### Added
@@ -80,6 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UV package manager support
 - Stdio transport for MCP communication
 
+[1.2.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/v1.2.0
 [0.3.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/v0.1.0
