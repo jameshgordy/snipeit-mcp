@@ -1,15 +1,16 @@
 """Snipe-IT MCP Server
 
 A Model Context Protocol (MCP) server for managing Snipe-IT inventory.
-Provides 29 tools for comprehensive CRUD operations on:
+Provides 39 tools for comprehensive CRUD operations on:
 
 Assets:
-- manage_assets: Create, read, update, delete, list assets
+- manage_assets: Create, read, update, delete, list assets (with bytag/byserial lookup and filtering)
 - asset_operations: Checkout, checkin, audit, restore assets
 - asset_files: Upload, list, download, delete asset file attachments
 - asset_labels: Generate printable PDF labels for assets
 - asset_maintenance: Create maintenance records for assets
 - asset_licenses: View licenses checked out to assets
+- asset_requests: Submit/cancel checkout requests for requestable assets
 
 Inventory:
 - manage_consumables: CRUD operations for consumable items
@@ -25,7 +26,8 @@ Licensing:
 
 Users & Organization:
 - manage_users: CRUD operations for users, plus restore and /me endpoint
-- user_assets: Get all items checked out to a user
+- user_assets: Get all items checked out to a user (assets, accessories, licenses, consumables, eulas)
+- user_two_factor: Reset user two-factor authentication
 - manage_companies: CRUD operations for companies
 - manage_departments: CRUD operations for departments
 - manage_groups: CRUD operations for permission groups
@@ -33,18 +35,29 @@ Users & Organization:
 System Configuration:
 - manage_categories: CRUD operations for categories
 - manage_manufacturers: CRUD operations for manufacturers
-- manage_models: CRUD operations for asset models
-- manage_status_labels: CRUD operations for status labels
-- manage_locations: CRUD operations for locations
+- manage_models: CRUD operations for asset models, plus list assets by model
+- manage_status_labels: CRUD operations for status labels, plus list assets by status
+- manage_locations: CRUD operations for locations, plus list assets/users by location
 - manage_suppliers: CRUD operations for suppliers
 - manage_depreciations: CRUD operations for depreciation schedules
 
 Custom Fields:
 - manage_fields: CRUD operations for custom fields, plus associate/disassociate
-- manage_fieldsets: CRUD operations for fieldsets
+- manage_fieldsets: CRUD operations for fieldsets, plus list fields and reorder
 
 Reporting:
 - activity_reports: Query activity logs and item history
+- status_summary: Get asset counts grouped by status label
+- audit_tracking: Track assets due/overdue for audit
+
+Import/Export:
+- manage_imports: CSV import workflow (upload, map, process)
+
+System Administration:
+- system_info: Get Snipe-IT version information
+- manage_backups: List and download database backups
+- ldap_operations: LDAP sync and connection testing
+- model_files: Manage file attachments for asset models
 """
 
 import os
@@ -471,6 +484,29 @@ class FieldsetData(BaseModel):
     name: str | None = Field(None, description="Fieldset name")
 
 
+class ImportData(BaseModel):
+    """Model for import configuration."""
+    import_type: Literal["asset", "accessory", "consumable", "component", "license", "user", "location"] | None = Field(
+        None, description="Type of data being imported"
+    )
+    field_map: dict | None = Field(
+        None, description="Maps CSV column names to Snipe-IT field names"
+    )
+    run_backup: bool | None = Field(
+        None, description="Whether to backup database before import"
+    )
+
+
+class AssetRequestData(BaseModel):
+    """Model for asset checkout request."""
+    expected_checkout: str | None = Field(
+        None, description="Expected checkout date (YYYY-MM-DD)"
+    )
+    note: str | None = Field(
+        None, description="Note explaining the request"
+    )
+
+
 # ============================================================================
 # Asset Tools
 # ============================================================================
@@ -494,18 +530,29 @@ def manage_assets(
     limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
     offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
-    sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
+    sort: Annotated[str | None, "Field to sort by (for list action). Valid fields: id, name, asset_tag, serial, model, model_number, last_checkout, category, manufacturer, notes, expected_checkin, order_number, companyName, location, image, status_label, assigned_to, created_at, purchase_date, purchase_cost"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
+    status_id: Annotated[int | None, "Filter by status label ID (for list action)"] = None,
+    model_id: Annotated[int | None, "Filter by model ID (for list action)"] = None,
+    company_id: Annotated[int | None, "Filter by company ID (for list action)"] = None,
+    location_id: Annotated[int | None, "Filter by location ID (for list action)"] = None,
+    category_id: Annotated[int | None, "Filter by category ID (for list action)"] = None,
+    manufacturer_id: Annotated[int | None, "Filter by manufacturer ID (for list action)"] = None,
+    assigned_to: Annotated[int | None, "Filter by assigned user/asset/location ID (for list action)"] = None,
 ) -> dict[str, Any]:
     """Manage Snipe-IT assets with CRUD operations.
-    
+
     This tool handles all basic asset operations:
     - create: Create a new asset (requires asset_data with at least status_id and model_id)
-    - get: Retrieve a single asset by ID, asset_tag, or serial number
-    - list: List assets with optional pagination and filtering
+    - get: Retrieve a single asset by ID, asset_tag, or serial number (uses dedicated bytag/byserial endpoints for reliable barcode scanning workflows)
+    - list: List assets with optional pagination, filtering by status/model/company/location/category/manufacturer/assigned_to
     - update: Update an existing asset (requires asset_id and asset_data)
     - delete: Delete an asset (requires asset_id)
-    
+
+    Sortable fields for list: id, name, asset_tag, serial, model, model_number, last_checkout,
+    category, manufacturer, notes, expected_checkin, order_number, companyName, location,
+    image, status_label, assigned_to, created_at, purchase_date, purchase_cost
+
     Returns:
         dict: Result of the operation including success status and data
     """
@@ -539,10 +586,35 @@ def manage_assets(
                 }
             
             elif action == "get":
+                # Use direct API for bytag/byserial lookups (more reliable for barcode scanning)
                 if asset_tag:
-                    asset = client.assets.get_by_tag(asset_tag)
+                    api = get_direct_api()
+                    asset_data_result = api._request("GET", f"hardware/bytag/{asset_tag}")
+                    return {
+                        "success": True,
+                        "action": "get",
+                        "asset": asset_data_result
+                    }
                 elif serial:
-                    asset = client.assets.get_by_serial(serial)
+                    api = get_direct_api()
+                    asset_data_result = api._request("GET", f"hardware/byserial/{serial}")
+                    # byserial may return rows array
+                    if "rows" in asset_data_result:
+                        assets = asset_data_result.get("rows", [])
+                        if not assets:
+                            return {"success": False, "error": f"No asset found with serial: {serial}"}
+                        return {
+                            "success": True,
+                            "action": "get",
+                            "asset": assets[0] if len(assets) == 1 else None,
+                            "assets": assets if len(assets) > 1 else None,
+                            "count": len(assets)
+                        }
+                    return {
+                        "success": True,
+                        "action": "get",
+                        "asset": asset_data_result
+                    }
                 elif asset_id:
                     asset = client.assets.get(asset_id)
                 else:
@@ -550,8 +622,8 @@ def manage_assets(
                         "success": False,
                         "error": "One of asset_id, asset_tag, or serial is required for get action"
                     }
-                
-                # Extract asset data
+
+                # Extract asset data (for asset_id lookup)
                 asset_dict = {
                     "id": asset.id,
                     "asset_tag": getattr(asset, "asset_tag", None),
@@ -568,7 +640,7 @@ def manage_assets(
                     "purchase_date": getattr(asset, "purchase_date", None),
                     "purchase_cost": getattr(asset, "purchase_cost", None),
                 }
-                
+
                 return {
                     "success": True,
                     "action": "get",
@@ -583,7 +655,22 @@ def manage_assets(
                     params["sort"] = sort
                 if order:
                     params["order"] = order
-                
+                # Add filter parameters
+                if status_id:
+                    params["status_id"] = status_id
+                if model_id:
+                    params["model_id"] = model_id
+                if company_id:
+                    params["company_id"] = company_id
+                if location_id:
+                    params["location_id"] = location_id
+                if category_id:
+                    params["category_id"] = category_id
+                if manufacturer_id:
+                    params["manufacturer_id"] = manufacturer_id
+                if assigned_to:
+                    params["assigned_to"] = assigned_to
+
                 assets = client.assets.list(**params)
                 
                 assets_list = [
@@ -1560,13 +1647,13 @@ def manage_manufacturers(
 )
 def manage_models(
     action: Annotated[
-        Literal["create", "get", "list", "update", "delete"],
+        Literal["create", "get", "list", "update", "delete", "assets"],
         "The action to perform on asset models"
     ],
-    model_id: Annotated[int | None, "Model ID (required for get, update, delete)"] = None,
+    model_id: Annotated[int | None, "Model ID (required for get, update, delete, assets)"] = None,
     model_data: Annotated[AssetModelData | None, "Model data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int | None, "Number of results to return (for list/assets actions)"] = 50,
+    offset: Annotated[int | None, "Number of results to skip (for list/assets actions)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -1581,6 +1668,7 @@ def manage_models(
     - list: List models with optional pagination and filtering
     - update: Update an existing model (requires model_id and model_data)
     - delete: Delete a model (requires model_id)
+    - assets: List all assets of a specific model
 
     Returns:
         dict: Result of the operation including success status and data
@@ -1698,6 +1786,24 @@ def manage_models(
                     "message": "Model deleted successfully"
                 }
 
+            elif action == "assets":
+                if not model_id:
+                    return {"success": False, "error": "model_id is required for assets action"}
+
+                api = get_direct_api()
+                params = {"limit": limit, "offset": offset}
+                result = api._request("GET", f"models/{model_id}/assets", params=params)
+                assets = result.get("rows", [])
+
+                return {
+                    "success": True,
+                    "action": "assets",
+                    "model_id": model_id,
+                    "count": len(assets),
+                    "total": result.get("total", len(assets)),
+                    "assets": assets
+                }
+
     except SnipeITNotFoundError as e:
         logger.error(f"Model not found: {e}")
         return {"success": False, "error": f"Model not found: {str(e)}"}
@@ -1724,13 +1830,13 @@ def manage_models(
 )
 def manage_status_labels(
     action: Annotated[
-        Literal["create", "get", "list", "update", "delete"],
+        Literal["create", "get", "list", "update", "delete", "assets"],
         "The action to perform on status labels"
     ],
-    status_label_id: Annotated[int | None, "Status label ID (required for get, update, delete)"] = None,
+    status_label_id: Annotated[int | None, "Status label ID (required for get, update, delete, assets)"] = None,
     status_label_data: Annotated[StatusLabelData | None, "Status label data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int | None, "Number of results to return (for list/assets actions)"] = 50,
+    offset: Annotated[int | None, "Number of results to skip (for list/assets actions)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -1745,6 +1851,7 @@ def manage_status_labels(
     - list: List status labels with optional pagination and filtering
     - update: Update an existing status label (requires status_label_id and status_label_data)
     - delete: Delete a status label (requires status_label_id)
+    - assets: List all assets with a specific status label
 
     Returns:
         dict: Result of the operation including success status and data
@@ -1848,6 +1955,23 @@ def manage_status_labels(
                 "message": "Status label deleted successfully"
             }
 
+        elif action == "assets":
+            if not status_label_id:
+                return {"success": False, "error": "status_label_id is required for assets action"}
+
+            params = {"limit": limit, "offset": offset}
+            result = api._request("GET", f"statuslabels/{status_label_id}/assetlist", params=params)
+            assets = result.get("rows", [])
+
+            return {
+                "success": True,
+                "action": "assets",
+                "status_label_id": status_label_id,
+                "count": len(assets),
+                "total": result.get("total", len(assets)),
+                "assets": assets
+            }
+
     except SnipeITNotFoundError as e:
         logger.error(f"Status label not found: {e}")
         return {"success": False, "error": f"Status label not found: {str(e)}"}
@@ -1874,13 +1998,13 @@ def manage_status_labels(
 )
 def manage_locations(
     action: Annotated[
-        Literal["create", "get", "list", "update", "delete"],
+        Literal["create", "get", "list", "update", "delete", "assets", "users"],
         "The action to perform on locations"
     ],
-    location_id: Annotated[int | None, "Location ID (required for get, update, delete)"] = None,
+    location_id: Annotated[int | None, "Location ID (required for get, update, delete, assets, users)"] = None,
     location_data: Annotated[LocationData | None, "Location data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int | None, "Number of results to return (for list/assets/users actions)"] = 50,
+    offset: Annotated[int | None, "Number of results to skip (for list/assets/users actions)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -1895,6 +2019,8 @@ def manage_locations(
     - list: List locations with optional pagination and filtering
     - update: Update an existing location (requires location_id and location_data)
     - delete: Delete a location (requires location_id)
+    - assets: List all assets at a specific location
+    - users: List all users assigned to a location
 
     Returns:
         dict: Result of the operation including success status and data
@@ -2012,6 +2138,42 @@ def manage_locations(
                     "action": "delete",
                     "location_id": location_id,
                     "message": "Location deleted successfully"
+                }
+
+            elif action == "assets":
+                if not location_id:
+                    return {"success": False, "error": "location_id is required for assets action"}
+
+                api = get_direct_api()
+                params = {"limit": limit, "offset": offset}
+                result = api._request("GET", f"locations/{location_id}/assets", params=params)
+                assets = result.get("rows", [])
+
+                return {
+                    "success": True,
+                    "action": "assets",
+                    "location_id": location_id,
+                    "count": len(assets),
+                    "total": result.get("total", len(assets)),
+                    "assets": assets
+                }
+
+            elif action == "users":
+                if not location_id:
+                    return {"success": False, "error": "location_id is required for users action"}
+
+                api = get_direct_api()
+                params = {"limit": limit, "offset": offset}
+                result = api._request("GET", f"locations/{location_id}/users", params=params)
+                users = result.get("rows", [])
+
+                return {
+                    "success": True,
+                    "action": "users",
+                    "location_id": location_id,
+                    "count": len(users),
+                    "total": result.get("total", len(users)),
+                    "users": users
                 }
 
     except SnipeITNotFoundError as e:
@@ -3219,14 +3381,25 @@ def manage_users(
 def user_assets(
     user_id: Annotated[int, "User ID"],
     asset_type: Annotated[
-        Literal["assets", "accessories", "licenses", "all"],
+        Literal["assets", "accessories", "licenses", "consumables", "eulas", "all"],
         "Type of items to retrieve"
     ] = "all",
 ) -> dict[str, Any]:
     """Get items checked out to a user.
 
-    Retrieves assets, accessories, and/or licenses that are currently
-    checked out to the specified user.
+    Retrieves assets, accessories, licenses, and/or consumables that are currently
+    checked out to the specified user. Also supports retrieving pending EULA acceptances.
+
+    Options:
+    - assets: Hardware assets checked out to user
+    - accessories: Accessories checked out to user
+    - licenses: License seats assigned to user
+    - consumables: Consumables checked out to user
+    - eulas: Pending EULA/acceptance items (items requiring user acceptance)
+    - all: All items except eulas (assets, accessories, licenses, consumables)
+
+    Note: The eulas option returns items requiring user acceptance via web portal.
+    This helps identify users with pending acceptances for follow-up.
 
     Returns:
         dict: Items checked out to the user
@@ -3246,6 +3419,14 @@ def user_assets(
         if asset_type in ("licenses", "all"):
             licenses = api._request("GET", f"users/{user_id}/licenses")
             result["licenses"] = licenses.get("rows", [])
+
+        if asset_type in ("consumables", "all"):
+            consumables = api._request("GET", f"users/{user_id}/consumables")
+            result["consumables"] = consumables.get("rows", [])
+
+        if asset_type == "eulas":
+            eulas = api._request("GET", f"users/{user_id}/eulas")
+            result["eulas"] = eulas.get("rows", [])
 
         return {
             "success": True,
@@ -4123,13 +4304,14 @@ def manage_fields(
 )
 def manage_fieldsets(
     action: Annotated[
-        Literal["create", "get", "list", "update", "delete", "fields"],
+        Literal["create", "get", "list", "update", "delete", "fields", "reorder"],
         "The action to perform on fieldsets"
     ],
-    fieldset_id: Annotated[int | None, "Fieldset ID (required for get, update, delete, fields)"] = None,
+    fieldset_id: Annotated[int | None, "Fieldset ID (required for get, update, delete, fields, reorder)"] = None,
     fieldset_data: Annotated[FieldsetData | None, "Fieldset data (required for create, optional for update)"] = None,
     limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
     offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    field_order: Annotated[list[int] | None, "Ordered list of field IDs (for reorder action)"] = None,
 ) -> dict[str, Any]:
     """Manage Snipe-IT fieldsets with CRUD operations.
 
@@ -4144,6 +4326,7 @@ def manage_fieldsets(
     - update: Update an existing fieldset
     - delete: Delete a fieldset
     - fields: List all fields in a fieldset
+    - reorder: Reorder fields in a fieldset (requires field_order list of field IDs)
 
     Returns:
         dict: Result of the operation including success status and data
@@ -4241,6 +4424,26 @@ def manage_fieldsets(
                 "action": "fields",
                 "fieldset_id": fieldset_id,
                 "fields": fields
+            }
+
+        elif action == "reorder":
+            if not fieldset_id:
+                return {"success": False, "error": "fieldset_id is required for reorder action"}
+            if not field_order:
+                return {"success": False, "error": "field_order is required for reorder action"}
+
+            result = api._request(
+                "POST",
+                f"fields/fieldsets/{fieldset_id}/order",
+                json={"item": field_order}
+            )
+
+            return {
+                "success": True,
+                "action": "reorder",
+                "fieldset_id": fieldset_id,
+                "message": "Field order updated successfully",
+                "result": result
             }
 
     except SnipeITNotFoundError as e:
@@ -4386,9 +4589,798 @@ def activity_reports(
 
 
 # ============================================================================
+# Import Management Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def manage_imports(
+    action: Annotated[
+        Literal["list", "get", "upload", "update", "delete", "process"],
+        "The import action to perform"
+    ],
+    import_id: Annotated[int | None, "Import file ID (required for get, update, delete, process)"] = None,
+    file_path: Annotated[str | None, "Path to CSV file (required for upload action)"] = None,
+    import_data: Annotated[ImportData | None, "Import configuration (for update action)"] = None,
+) -> dict[str, Any]:
+    """Manage CSV import operations for bulk data import.
+
+    The import workflow is: upload → update mappings → process
+
+    Operations:
+    - list: List all import files
+    - get: Get import file details including column mappings
+    - upload: Upload a CSV file for import
+    - update: Update import column mappings and settings
+    - delete: Delete an import file
+    - process: Execute the import
+
+    Common field mappings for assets:
+    - asset_tag, name, serial, model_id, status_id
+    - purchase_date, purchase_cost, order_number
+    - notes, warranty_months, supplier_id
+    - location_id, company_id, category_id
+
+    Returns:
+        dict: Result of the operation including success status and data
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "list":
+            result = api._request("GET", "imports")
+            imports = result.get("rows", [])
+
+            return {
+                "success": True,
+                "action": "list",
+                "count": len(imports),
+                "imports": imports
+            }
+
+        elif action == "get":
+            if not import_id:
+                return {"success": False, "error": "import_id is required for get action"}
+
+            result = api._request("GET", f"imports/{import_id}")
+
+            return {
+                "success": True,
+                "action": "get",
+                "import": result
+            }
+
+        elif action == "upload":
+            if not file_path:
+                return {"success": False, "error": "file_path is required for upload action"}
+
+            import os
+            if not os.path.exists(file_path):
+                return {"success": False, "error": f"File not found: {file_path}"}
+
+            filename = os.path.basename(file_path)
+            with open(file_path, "rb") as f:
+                files = {"file": (filename, f, "text/csv")}
+                url = f"{api.base_url}/api/v1/imports"
+                headers = {
+                    "Authorization": f"Bearer {SNIPEIT_TOKEN}",
+                    "Accept": "application/json",
+                }
+                response = requests.post(url, headers=headers, files=files)
+                response.raise_for_status()
+                result = response.json()
+
+            return {
+                "success": True,
+                "action": "upload",
+                "message": f"File '{filename}' uploaded successfully",
+                "import": result
+            }
+
+        elif action == "update":
+            if not import_id:
+                return {"success": False, "error": "import_id is required for update action"}
+            if not import_data:
+                return {"success": False, "error": "import_data is required for update action"}
+
+            update_payload = {k: v for k, v in import_data.model_dump().items() if v is not None}
+            result = api._request("PATCH", f"imports/{import_id}", json=update_payload)
+
+            return {
+                "success": True,
+                "action": "update",
+                "import_id": import_id,
+                "result": result
+            }
+
+        elif action == "delete":
+            if not import_id:
+                return {"success": False, "error": "import_id is required for delete action"}
+
+            api._request("DELETE", f"imports/{import_id}")
+
+            return {
+                "success": True,
+                "action": "delete",
+                "import_id": import_id,
+                "message": "Import file deleted successfully"
+            }
+
+        elif action == "process":
+            if not import_id:
+                return {"success": False, "error": "import_id is required for process action"}
+
+            result = api._request("POST", f"imports/process/{import_id}")
+
+            return {
+                "success": True,
+                "action": "process",
+                "import_id": import_id,
+                "message": "Import processed",
+                "result": result
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Import not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in manage_imports: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Relationship Query Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+    }
+)
+def status_summary() -> dict[str, Any]:
+    """Get asset counts grouped by status label.
+
+    Returns a summary of how many assets are in each status,
+    useful for dashboard displays and reporting.
+
+    Returns:
+        dict: Asset counts by status label
+    """
+    try:
+        api = get_direct_api()
+        result = api._request("GET", "statuslabels/assets")
+
+        return {
+            "success": True,
+            "summary": result
+        }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Resource not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in status_summary: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Asset Request Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+    }
+)
+def asset_requests(
+    action: Annotated[
+        Literal["request", "cancel"],
+        "The request action to perform"
+    ],
+    asset_id: Annotated[int, "Asset ID (must be a requestable asset)"],
+    request_data: Annotated[AssetRequestData | None, "Request details (for request action)"] = None,
+) -> dict[str, Any]:
+    """Manage asset checkout requests.
+
+    Allows users to request checkout of requestable assets. Assets must have
+    the 'requestable' flag set (either on the asset or its model).
+
+    Operations:
+    - request: Submit a request to checkout an asset
+    - cancel: Cancel a pending request
+
+    Note: Viewing the request queue and approving/denying requests is only
+    available through the web UI - there are no API endpoints for these
+    administrative functions.
+
+    Returns:
+        dict: Result of the operation including success status
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "request":
+            payload = {}
+            if request_data:
+                if request_data.expected_checkout:
+                    payload["expected_checkout"] = request_data.expected_checkout
+                if request_data.note:
+                    payload["note"] = request_data.note
+
+            result = api._request("POST", f"hardware/{asset_id}/request", json=payload if payload else None)
+
+            return {
+                "success": True,
+                "action": "request",
+                "asset_id": asset_id,
+                "message": "Checkout request submitted",
+                "result": result
+            }
+
+        elif action == "cancel":
+            result = api._request("POST", f"hardware/{asset_id}/request/cancel")
+
+            return {
+                "success": True,
+                "action": "cancel",
+                "asset_id": asset_id,
+                "message": "Checkout request cancelled",
+                "result": result
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Asset not found: {e}")
+        return {"success": False, "error": f"Asset not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in asset_requests: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# User Administration Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def user_two_factor(
+    action: Annotated[
+        Literal["reset"],
+        "The 2FA action to perform"
+    ],
+    user_id: Annotated[int, "User ID"],
+) -> dict[str, Any]:
+    """Manage user two-factor authentication.
+
+    Administrative functions for managing user 2FA settings.
+
+    Operations:
+    - reset: Reset a user's 2FA, requiring them to re-enroll
+
+    Note: This is an administrative function that affects user security.
+
+    Returns:
+        dict: Result of the operation
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "reset":
+            result = api._request("POST", f"users/{user_id}/two_factor_reset")
+
+            return {
+                "success": True,
+                "action": "reset",
+                "user_id": user_id,
+                "message": "Two-factor authentication reset successfully. User will need to re-enroll.",
+                "result": result
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"User not found: {e}")
+        return {"success": False, "error": f"User not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in user_two_factor: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Audit Tracking Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+    }
+)
+def audit_tracking(
+    action: Annotated[
+        Literal["due", "overdue", "summary"],
+        "The audit tracking action"
+    ],
+    limit: Annotated[int | None, "Number of results to return"] = 50,
+    offset: Annotated[int | None, "Number of results to skip"] = 0,
+) -> dict[str, Any]:
+    """Track asset audit status for compliance.
+
+    Snipe-IT tracks when assets were last audited and calculates
+    when they're due for re-audit based on the configured threshold.
+
+    Operations:
+    - due: Assets approaching their audit date (within warning threshold)
+    - overdue: Assets that have passed their audit date
+    - summary: Combined counts of due and overdue assets
+
+    The audit threshold is configured in Admin Settings → Notifications
+    and determines the lookahead window for "due" assets.
+
+    Returns:
+        dict: Audit status with asset details
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "due":
+            params = {"limit": limit, "offset": offset}
+            result = api._request("GET", "hardware/audit/due", params=params)
+            assets = result.get("rows", [])
+
+            return {
+                "success": True,
+                "action": "due",
+                "count": len(assets),
+                "total": result.get("total", len(assets)),
+                "assets": assets
+            }
+
+        elif action == "overdue":
+            params = {"limit": limit, "offset": offset}
+            result = api._request("GET", "hardware/audit/overdue", params=params)
+            assets = result.get("rows", [])
+
+            return {
+                "success": True,
+                "action": "overdue",
+                "count": len(assets),
+                "total": result.get("total", len(assets)),
+                "assets": assets
+            }
+
+        elif action == "summary":
+            # Get both due and overdue counts
+            due_result = api._request("GET", "hardware/audit/due", params={"limit": 10})
+            overdue_result = api._request("GET", "hardware/audit/overdue", params={"limit": 10})
+
+            due_assets = due_result.get("rows", [])
+            overdue_assets = overdue_result.get("rows", [])
+
+            return {
+                "success": True,
+                "action": "summary",
+                "due_count": due_result.get("total", len(due_assets)),
+                "overdue_count": overdue_result.get("total", len(overdue_assets)),
+                "due_assets": due_assets,
+                "overdue_assets": overdue_assets
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Resource not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in audit_tracking: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# System Administration Tools
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+    }
+)
+def system_info() -> dict[str, Any]:
+    """Get Snipe-IT system information.
+
+    Returns version and installation details. Useful for
+    compatibility checking and deployment verification.
+
+    Returns:
+        dict: System version information
+    """
+    try:
+        api = get_direct_api()
+        result = api._request("GET", "version")
+
+        return {
+            "success": True,
+            "version_info": result
+        }
+
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in system_info: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+    }
+)
+def manage_backups(
+    action: Annotated[
+        Literal["list", "download"],
+        "The backup action to perform"
+    ],
+    filename: Annotated[str | None, "Backup filename (for download)"] = None,
+    save_path: Annotated[str | None, "Local path to save backup (for download)"] = None,
+) -> dict[str, Any]:
+    """Manage Snipe-IT database backups.
+
+    Operations:
+    - list: List available database backup files
+    - download: Download a specific backup file
+
+    Note: Backup creation is triggered via web UI or CLI,
+    not available via API.
+
+    Returns:
+        dict: Backup list or download result
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "list":
+            result = api._request("GET", "settings/backups")
+            backups = result.get("rows", result.get("backups", []))
+
+            return {
+                "success": True,
+                "action": "list",
+                "backups": backups
+            }
+
+        elif action == "download":
+            if not filename:
+                return {"success": False, "error": "filename is required for download action"}
+            if not save_path:
+                return {"success": False, "error": "save_path is required for download action"}
+
+            url = f"{api.base_url}/api/v1/settings/backups/download/{filename}"
+            headers = {
+                "Authorization": f"Bearer {SNIPEIT_TOKEN}",
+                "Accept": "application/octet-stream",
+            }
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+
+            import os
+            os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+            with open(save_path, "wb") as f:
+                f.write(response.content)
+
+            return {
+                "success": True,
+                "action": "download",
+                "filename": filename,
+                "saved_to": save_path,
+                "message": f"Backup downloaded to {save_path}"
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Backup not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in manage_backups: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+    }
+)
+def ldap_operations(
+    action: Annotated[
+        Literal["sync", "test"],
+        "The LDAP action to perform"
+    ],
+) -> dict[str, Any]:
+    """Manage LDAP synchronization.
+
+    Operations:
+    - sync: Trigger LDAP user synchronization
+    - test: Test LDAP connection settings
+
+    Note: LDAP must be configured in Snipe-IT settings before use.
+    Previously required CLI (php artisan snipeit:ldap-sync) or web UI.
+
+    Returns:
+        dict: Sync results or connection test status
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "sync":
+            result = api._request("POST", "settings/ldapsync")
+
+            return {
+                "success": True,
+                "action": "sync",
+                "message": "LDAP sync triggered",
+                "result": result
+            }
+
+        elif action == "test":
+            result = api._request("GET", "settings/ldaptest")
+
+            return {
+                "success": True,
+                "action": "test",
+                "result": result
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"LDAP endpoint not found: {e}")
+        return {"success": False, "error": f"Not found (LDAP may not be configured): {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in ldap_operations: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Model File Attachments
+# ============================================================================
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def model_files(
+    action: Annotated[
+        Literal["upload", "list", "download", "delete"],
+        "The file operation to perform"
+    ],
+    model_id: Annotated[int, "Model ID"],
+    file_path: Annotated[str | None, "File path to upload (for upload action)"] = None,
+    file_id: Annotated[int | None, "File ID (required for download and delete actions)"] = None,
+    save_path: Annotated[str | None, "Path to save downloaded file (for download action)"] = None,
+) -> dict[str, Any]:
+    """Manage file attachments for asset models.
+
+    Models can have attached files such as documentation, manuals,
+    datasheets, or images that apply to all assets of that model.
+
+    Operations:
+    - upload: Upload a file to a model
+    - list: List all files attached to a model
+    - download: Download a specific file from a model
+    - delete: Delete a specific file from a model
+
+    Returns:
+        dict: Result of the operation including success status and data
+    """
+    try:
+        api = get_direct_api()
+
+        if action == "upload":
+            if not file_path:
+                return {"success": False, "error": "file_path is required for upload action"}
+
+            import os
+            if not os.path.exists(file_path):
+                return {"success": False, "error": f"File not found: {file_path}"}
+
+            filename = os.path.basename(file_path)
+            with open(file_path, "rb") as f:
+                files = {"file": (filename, f)}
+                url = f"{api.base_url}/api/v1/models/{model_id}/files"
+                headers = {
+                    "Authorization": f"Bearer {SNIPEIT_TOKEN}",
+                    "Accept": "application/json",
+                }
+                response = requests.post(url, headers=headers, files=files)
+                response.raise_for_status()
+                result = response.json()
+
+            return {
+                "success": True,
+                "action": "upload",
+                "model_id": model_id,
+                "message": f"File '{filename}' uploaded successfully",
+                "result": result
+            }
+
+        elif action == "list":
+            result = api._request("GET", f"models/{model_id}/files")
+            files = result.get("rows", [])
+
+            files_list = [
+                {
+                    "id": f.get("id"),
+                    "filename": f.get("filename"),
+                    "url": f.get("url"),
+                    "created_at": f.get("created_at"),
+                    "notes": f.get("notes"),
+                }
+                for f in files
+            ]
+
+            return {
+                "success": True,
+                "action": "list",
+                "model_id": model_id,
+                "count": len(files_list),
+                "files": files_list
+            }
+
+        elif action == "download":
+            if file_id is None:
+                return {"success": False, "error": "file_id is required for download action"}
+            if not save_path:
+                return {"success": False, "error": "save_path is required for download action"}
+
+            url = f"{api.base_url}/api/v1/models/{model_id}/files/{file_id}"
+            headers = {
+                "Authorization": f"Bearer {SNIPEIT_TOKEN}",
+                "Accept": "application/octet-stream",
+            }
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+
+            import os
+            os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+            with open(save_path, "wb") as f:
+                f.write(response.content)
+
+            return {
+                "success": True,
+                "action": "download",
+                "model_id": model_id,
+                "file_id": file_id,
+                "saved_to": save_path,
+                "message": f"File downloaded to {save_path}"
+            }
+
+        elif action == "delete":
+            if file_id is None:
+                return {"success": False, "error": "file_id is required for delete action"}
+
+            api._request("DELETE", f"models/{model_id}/files/{file_id}")
+
+            return {
+                "success": True,
+                "action": "delete",
+                "model_id": model_id,
+                "file_id": file_id,
+                "message": "File deleted successfully"
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Model or file not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in model_files: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+# ============================================================================
+# Tool Whitelist Configuration
+# ============================================================================
+SNIPEIT_ALLOWED_TOOLS = os.getenv("SNIPEIT_ALLOWED_TOOLS", "").strip()
+
+if SNIPEIT_ALLOWED_TOOLS:
+    _allowed = {t.strip() for t in SNIPEIT_ALLOWED_TOOLS.split(",") if t.strip()}
+    _tools = mcp._tool_manager._tools
+    _original = len(_tools)
+    mcp._tool_manager._tools = {name: tool for name, tool in _tools.items() if name in _allowed}
+    logger.info(
+        f"Tool whitelist active: {len(mcp._tool_manager._tools)}/{_original} tools enabled. "
+        f"Allowed: {sorted(_allowed)}"
+    )
+else:
+    logger.info(f"All {len(mcp._tool_manager._tools)} tools enabled (no whitelist configured)")
+
+
+# ============================================================================
 # Server Entry Point
 # ============================================================================
 
-if __name__ == "__main__":
-    # Run the server with stdio transport (default for MCP)
+def main():
+    """Entry point for the MCP server."""
     mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()
