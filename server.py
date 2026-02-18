@@ -616,36 +616,19 @@ def manage_assets(
                         "asset": asset_data_result
                     }
                 elif asset_id:
-                    asset = client.assets.get(asset_id)
+                    # Use direct API to get full asset data including custom fields
+                    api = get_direct_api()
+                    asset_data_result = api._request("GET", f"hardware/{asset_id}")
+                    return {
+                        "success": True,
+                        "action": "get",
+                        "asset": asset_data_result
+                    }
                 else:
                     return {
                         "success": False,
                         "error": "One of asset_id, asset_tag, or serial is required for get action"
                     }
-
-                # Extract asset data (for asset_id lookup)
-                asset_dict = {
-                    "id": asset.id,
-                    "asset_tag": getattr(asset, "asset_tag", None),
-                    "name": getattr(asset, "name", None),
-                    "serial": getattr(asset, "serial", None),
-                    "model": getattr(asset, "model", None),
-                    "status_label": getattr(asset, "status_label", None),
-                    "category": getattr(asset, "category", None),
-                    "manufacturer": getattr(asset, "manufacturer", None),
-                    "supplier": getattr(asset, "supplier", None),
-                    "notes": getattr(asset, "notes", None),
-                    "location": getattr(asset, "location", None),
-                    "assigned_to": getattr(asset, "assigned_to", None),
-                    "purchase_date": getattr(asset, "purchase_date", None),
-                    "purchase_cost": getattr(asset, "purchase_cost", None),
-                }
-
-                return {
-                    "success": True,
-                    "action": "get",
-                    "asset": asset_dict
-                }
             
             elif action == "list":
                 params = {"limit": limit, "offset": offset}
@@ -671,24 +654,17 @@ def manage_assets(
                 if assigned_to:
                     params["assigned_to"] = assigned_to
 
-                assets = client.assets.list(**params)
-                
-                assets_list = [
-                    {
-                        "id": asset.id,
-                        "asset_tag": getattr(asset, "asset_tag", None),
-                        "name": getattr(asset, "name", None),
-                        "serial": getattr(asset, "serial", None),
-                        "model": getattr(asset, "model", {}).get("name") if hasattr(asset, "model") and isinstance(getattr(asset, "model", None), dict) else None,
-                    }
-                    for asset in assets
-                ]
-                
+                # Use direct API to get full asset data including custom fields
+                api = get_direct_api()
+                assets_result = api._request("GET", "hardware", params=params)
+                rows = assets_result.get("rows", [])
+
                 return {
                     "success": True,
                     "action": "list",
-                    "count": len(assets_list),
-                    "assets": assets_list
+                    "count": len(rows),
+                    "total": assets_result.get("total", len(rows)),
+                    "assets": rows
                 }
             
             elif action == "update":

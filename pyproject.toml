@@ -23,6 +23,13 @@ Issues = "https://github.com/jameshgordy/snipeit-mcp/issues"
 [project.scripts]
 snipeit-mcp = "server:main"
 
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["server"]
+
 [tool.uv]
 
 [tool.pytest.ini_options]
