@@ -526,7 +526,8 @@ def manage_assets(
     asset_id: Annotated[int | None, "Asset ID (required for get, update, delete)"] = None,
     asset_tag: Annotated[str | None, "Asset tag (alternative to asset_id for get)"] = None,
     serial: Annotated[str | None, "Serial number (alternative to asset_id for get)"] = None,
-    asset_data: Annotated[AssetData | None, "Asset data (required for create, optional for update)"] = None,
+    asset_data: Annotated[AssetData | None, "Asset data for standard fields (required for create, optional for update)"] = None,
+    extra_fields: Annotated[dict | None, "Additional fields not in AssetData: asset_eol_date, custom fields (_snipeit_*), etc. For update, fields are validated against the asset's model fieldset."] = None,
     limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
     offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
@@ -546,8 +547,12 @@ def manage_assets(
     - create: Create a new asset (requires asset_data with at least status_id and model_id)
     - get: Retrieve a single asset by ID, asset_tag, or serial number (uses dedicated bytag/byserial endpoints for reliable barcode scanning workflows)
     - list: List assets with optional pagination, filtering by status/model/company/location/category/manufacturer/assigned_to
-    - update: Update an existing asset (requires asset_id and asset_data)
+    - update: Update an existing asset (requires asset_id and asset_data/extra_fields)
     - delete: Delete an asset (requires asset_id)
+
+    Use extra_fields for fields not in AssetData: asset_eol_date, custom fields (_snipeit_*), etc.
+    For update, extra_fields are validated against the asset's model fieldset before sending.
+    Invalid field names will be rejected with a list of available fields.
 
     Sortable fields for list: id, name, asset_tag, serial, model, model_number, last_checkout,
     category, manufacturer, notes, expected_checkin, order_number, companyName, location,
@@ -563,26 +568,24 @@ def manage_assets(
             if action == "create":
                 if not asset_data:
                     return {"success": False, "error": "asset_data is required for create action"}
-                
+
                 if not asset_data.status_id or not asset_data.model_id:
                     return {
                         "success": False,
                         "error": "status_id and model_id are required to create an asset"
                     }
-                
+
                 # Build creation payload
-                create_kwargs = {k: v for k, v in asset_data.model_dump().items() if v is not None}
-                asset = client.assets.create(**create_kwargs)
-                
+                payload = {k: v for k, v in asset_data.model_dump().items() if v is not None}
+                if extra_fields:
+                    payload.update(extra_fields)
+
+                api = get_direct_api()
+                result = api._request("POST", "hardware", json=payload)
                 return {
                     "success": True,
                     "action": "create",
-                    "asset": {
-                        "id": asset.id,
-                        "asset_tag": getattr(asset, "asset_tag", None),
-                        "name": getattr(asset, "name", None),
-                        "serial": getattr(asset, "serial", None),
-                    }
+                    "asset": result
                 }
             
             elif action == "get":
@@ -670,22 +673,63 @@ def manage_assets(
             elif action == "update":
                 if not asset_id:
                     return {"success": False, "error": "asset_id is required for update action"}
-                if not asset_data:
-                    return {"success": False, "error": "asset_data is required for update action"}
-                
-                # Build update payload (only include non-None values)
-                update_kwargs = {k: v for k, v in asset_data.model_dump().items() if v is not None}
-                
-                asset = client.assets.patch(asset_id, **update_kwargs)
-                
+                if not asset_data and not extra_fields:
+                    return {"success": False, "error": "asset_data or extra_fields is required for update action"}
+
+                api = get_direct_api()
+
+                # Build update payload from standard fields
+                payload = {}
+                if asset_data:
+                    payload.update({k: v for k, v in asset_data.model_dump().items() if v is not None})
+
+                # Validate and merge extra_fields
+                if extra_fields:
+                    # Fetch current asset to discover valid custom fields
+                    current_asset = api._request("GET", f"hardware/{asset_id}")
+
+                    # Known standard API fields for hardware PATCH
+                    valid_standard = {
+                        "name", "asset_tag", "serial", "model_id", "status_id",
+                        "purchase_date", "purchase_cost", "order_number", "notes",
+                        "warranty_months", "location_id", "rtd_location_id",
+                        "supplier_id", "company_id", "requestable", "archived",
+                        "asset_eol_date", "eol_explicit", "byod",
+                        "assigned_to", "image", "expected_checkin",
+                        "next_audit_date", "last_audit_date",
+                    }
+
+                    # Extract valid custom field db_columns from asset
+                    valid_custom = set()
+                    custom_fields_info = current_asset.get("custom_fields", {})
+                    if isinstance(custom_fields_info, dict):
+                        for field_info in custom_fields_info.values():
+                            if isinstance(field_info, dict) and "field" in field_info:
+                                db_col = field_info["field"]
+                                if db_col:
+                                    valid_custom.add(db_col)
+
+                    all_valid = valid_standard | valid_custom
+                    invalid_fields = set(extra_fields.keys()) - all_valid
+
+                    if invalid_fields:
+                        return {
+                            "success": False,
+                            "error": f"Unknown fields: {sorted(invalid_fields)}. "
+                                     f"Available standard fields: {sorted(valid_standard)}. "
+                                     f"Available custom fields: {sorted(valid_custom)}"
+                        }
+
+                    payload.update(extra_fields)
+
+                if not payload:
+                    return {"success": False, "error": "No fields to update (all values are None)"}
+
+                result = api._request("PATCH", f"hardware/{asset_id}", json=payload)
                 return {
                     "success": True,
                     "action": "update",
-                    "asset": {
-                        "id": asset.id,
-                        "asset_tag": getattr(asset, "asset_tag", None),
-                        "name": getattr(asset, "name", None),
-                    }
+                    "asset": result
                 }
             
             elif action == "delete":
