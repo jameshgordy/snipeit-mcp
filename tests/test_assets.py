@@ -11,17 +11,13 @@ def get_tool_fn(tool):
 
 
 class TestManageAssets:
-    def test_create(self, mock_client):
+    def test_create(self, mock_client, mock_direct_api):
         from server import manage_assets, AssetData
-        asset = MagicMock()
-        asset.id = 1
-        asset.asset_tag = "LAP-001"
-        asset.name = "Test Laptop"
-        asset.serial = "ABC"
-        mock_client.assets.create.return_value = asset
+        mock_direct_api._request.return_value = {"status": "success", "payload": {"id": 1, "asset_tag": "LAP-001", "name": "Test Laptop"}}
         result = get_tool_fn(manage_assets)(action="create", asset_data=AssetData(status_id=1, model_id=5, name="Test Laptop"))
         assert result["success"] is True
         assert result["action"] == "create"
+        mock_direct_api._request.assert_called_once_with("POST", "hardware", json={"status_id": 1, "model_id": 5, "name": "Test Laptop"})
 
     def test_create_missing_data(self, mock_client):
         from server import manage_assets
@@ -33,14 +29,13 @@ class TestManageAssets:
         result = get_tool_fn(manage_assets)(action="create", asset_data=AssetData())
         assert result["success"] is False
 
-    def test_get_by_id(self, mock_client):
+    def test_get_by_id(self, mock_client, mock_direct_api):
         from server import manage_assets
-        asset = MagicMock()
-        asset.id = 1
-        mock_client.assets.get.return_value = asset
+        mock_direct_api._request.return_value = {"id": 1, "name": "Test Asset"}
         result = get_tool_fn(manage_assets)(action="get", asset_id=1)
         assert result["success"] is True
         assert result["action"] == "get"
+        mock_direct_api._request.assert_called_with("GET", "hardware/1")
 
     def test_get_by_tag(self, mock_direct_api, mock_client):
         from server import manage_assets
@@ -62,33 +57,31 @@ class TestManageAssets:
         assert result["success"] is False
         assert "required" in result["error"].lower()
 
-    def test_list(self, mock_client):
+    def test_list(self, mock_client, mock_direct_api):
         from server import manage_assets
-        mock_client.assets.list.return_value = []
+        mock_direct_api._request.return_value = {"rows": [], "total": 0}
         result = get_tool_fn(manage_assets)(action="list")
         assert result["success"] is True
         assert result["action"] == "list"
 
-    def test_list_with_filters(self, mock_client):
+    def test_list_with_filters(self, mock_client, mock_direct_api):
         from server import manage_assets
-        mock_client.assets.list.return_value = []
+        mock_direct_api._request.return_value = {"rows": [], "total": 0}
         result = get_tool_fn(manage_assets)(action="list", status_id=1, model_id=5, location_id=10)
         assert result["success"] is True
-        call_kwargs = mock_client.assets.list.call_args[1]
-        assert call_kwargs.get("status_id") == 1
-        assert call_kwargs.get("model_id") == 5
+        call_params = mock_direct_api._request.call_args[1]["params"]
+        assert call_params.get("status_id") == 1
+        assert call_params.get("model_id") == 5
 
-    def test_list_with_sort(self, mock_client):
+    def test_list_with_sort(self, mock_client, mock_direct_api):
         from server import manage_assets
-        mock_client.assets.list.return_value = []
+        mock_direct_api._request.return_value = {"rows": [], "total": 0}
         result = get_tool_fn(manage_assets)(action="list", sort="name", order="asc")
         assert result["success"] is True
 
-    def test_update(self, mock_client):
+    def test_update(self, mock_client, mock_direct_api):
         from server import manage_assets, AssetData
-        asset = MagicMock()
-        asset.id = 1
-        mock_client.assets.patch.return_value = asset
+        mock_direct_api._request.return_value = {"status": "success", "payload": {"id": 1, "name": "Updated"}}
         result = get_tool_fn(manage_assets)(action="update", asset_id=1, asset_data=AssetData(name="Updated"))
         assert result["success"] is True
         assert result["action"] == "update"

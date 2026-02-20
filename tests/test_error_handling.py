@@ -55,16 +55,16 @@ class TestDirectApiErrors:
 
 
 class TestClientErrors:
-    def test_not_found(self, mock_client):
+    def test_not_found(self, mock_client, mock_direct_api):
         from server import manage_assets, SnipeITNotFoundError
-        mock_client.assets.get.side_effect = SnipeITNotFoundError("Asset not found")
+        mock_direct_api._request.side_effect = SnipeITNotFoundError("Asset not found")
         result = get_tool_fn(manage_assets)(action="get", asset_id=999)
         assert result["success"] is False
         assert "not found" in result["error"].lower()
 
-    def test_authentication_error(self, mock_client):
+    def test_authentication_error(self, mock_client, mock_direct_api):
         from server import manage_assets, SnipeITAuthenticationError
-        mock_client.assets.list.side_effect = SnipeITAuthenticationError("Bad token")
+        mock_direct_api._request.side_effect = SnipeITAuthenticationError("Bad token")
         result = get_tool_fn(manage_assets)(action="list")
         assert result["success"] is False
         assert "authentication" in result["error"].lower()

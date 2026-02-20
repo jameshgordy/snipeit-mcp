@@ -177,6 +177,19 @@ def get_direct_api() -> SnipeITDirectAPI:
     return SnipeITDirectAPI()
 
 
+# Standard API fields accepted by Snipe-IT hardware PATCH/POST endpoints.
+# Keep in sync with Snipe-IT API: https://snipe-it.readme.io/reference/hardware
+HARDWARE_STANDARD_FIELDS = {
+    "name", "asset_tag", "serial", "model_id", "status_id",
+    "purchase_date", "purchase_cost", "order_number", "notes",
+    "warranty_months", "location_id", "rtd_location_id",
+    "supplier_id", "company_id", "requestable", "archived",
+    "asset_eol_date", "eol_explicit", "byod",
+    "assigned_to", "image", "expected_checkin",
+    "next_audit_date", "last_audit_date",
+}
+
+
 # ============================================================================
 # Pydantic Models for Tool Input/Output
 # ============================================================================
@@ -551,8 +564,11 @@ def manage_assets(
     - delete: Delete an asset (requires asset_id)
 
     Use extra_fields for fields not in AssetData: asset_eol_date, custom fields (_snipeit_*), etc.
-    For update, extra_fields are validated against the asset's model fieldset before sending.
+    For both create and update, extra_fields are validated against the model's fieldset before sending.
     Invalid field names will be rejected with a list of available fields.
+
+    Note: list action returns full asset objects. With high limits this can produce large responses.
+    Use pagination (limit/offset) to control response size.
 
     Sortable fields for list: id, name, asset_tag, serial, model, model_number, last_checkout,
     category, manufacturer, notes, expected_checkin, order_number, companyName, location,
@@ -577,10 +593,39 @@ def manage_assets(
 
                 # Build creation payload
                 payload = {k: v for k, v in asset_data.model_dump().items() if v is not None}
-                if extra_fields:
-                    payload.update(extra_fields)
 
                 api = get_direct_api()
+
+                # Validate extra_fields against model's fieldset
+                if extra_fields:
+                    valid_standard = HARDWARE_STANDARD_FIELDS
+                    valid_custom = set()
+
+                    # Fetch model to discover valid custom fields from its fieldset
+                    model_info = api._request("GET", f"models/{asset_data.model_id}")
+                    fieldset = model_info.get("fieldset") or {}
+                    fieldset_id = fieldset.get("id") if isinstance(fieldset, dict) else None
+                    if fieldset_id:
+                        fieldset_detail = api._request("GET", f"fieldsets/{fieldset_id}")
+                        fields_data = fieldset_detail.get("fields", {})
+                        for field in fields_data.get("rows", []):
+                            db_col = field.get("db_column_name")
+                            if db_col:
+                                valid_custom.add(db_col)
+
+                    all_valid = valid_standard | valid_custom
+                    invalid_fields = set(extra_fields.keys()) - all_valid
+
+                    if invalid_fields:
+                        return {
+                            "success": False,
+                            "error": f"Unknown fields: {sorted(invalid_fields)}. "
+                                     f"Available standard fields: {sorted(valid_standard)}. "
+                                     f"Available custom fields: {sorted(valid_custom)}"
+                        }
+
+                    payload.update(extra_fields)
+
                 result = api._request("POST", "hardware", json=payload)
                 return {
                     "success": True,
@@ -685,19 +730,11 @@ def manage_assets(
 
                 # Validate and merge extra_fields
                 if extra_fields:
-                    # Fetch current asset to discover valid custom fields
+                    # Extra GET to discover valid custom fields from the asset's model fieldset.
+                    # Adds one round-trip but prevents silent field name typos.
                     current_asset = api._request("GET", f"hardware/{asset_id}")
 
-                    # Known standard API fields for hardware PATCH
-                    valid_standard = {
-                        "name", "asset_tag", "serial", "model_id", "status_id",
-                        "purchase_date", "purchase_cost", "order_number", "notes",
-                        "warranty_months", "location_id", "rtd_location_id",
-                        "supplier_id", "company_id", "requestable", "archived",
-                        "asset_eol_date", "eol_explicit", "byod",
-                        "assigned_to", "image", "expected_checkin",
-                        "next_audit_date", "last_audit_date",
-                    }
+                    valid_standard = HARDWARE_STANDARD_FIELDS
 
                     # Extract valid custom field db_columns from asset
                     valid_custom = set()
