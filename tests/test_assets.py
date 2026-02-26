@@ -64,6 +64,16 @@ class TestManageAssets:
         assert result["success"] is True
         assert result["action"] == "list"
 
+    def test_list_default_sort(self, mock_client, mock_direct_api):
+        """list() without explicit sort should default to sort=id, order=asc for stable pagination."""
+        from server import manage_assets
+        mock_direct_api._request.return_value = {"rows": [], "total": 0}
+        result = get_tool_fn(manage_assets)(action="list")
+        assert result["success"] is True
+        call_params = mock_direct_api._request.call_args[1]["params"]
+        assert call_params["sort"] == "id", "Default sort should be 'id' for stable pagination"
+        assert call_params["order"] == "asc", "Default order should be 'asc' for stable pagination"
+
     def test_list_with_filters(self, mock_client, mock_direct_api):
         from server import manage_assets
         mock_direct_api._request.return_value = {"rows": [], "total": 0}
