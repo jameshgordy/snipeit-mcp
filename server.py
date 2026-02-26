@@ -143,14 +143,15 @@ class SnipeITDirectAPI:
     def list(self, endpoint: str, limit: int = 50, offset: int = 0,
              search: str | None = None, sort: str | None = None,
              order: str | None = None) -> list[dict]:
-        """List resources with pagination."""
-        params = {"limit": limit, "offset": offset}
+        """List resources with pagination.
+
+        Defaults to sort=id, order=asc to ensure deterministic ordering
+        across paginated requests and prevent duplicate/missing records.
+        """
+        params = {"limit": limit, "offset": offset,
+                  "sort": sort or "id", "order": order or "asc"}
         if search:
             params["search"] = search
-        if sort:
-            params["sort"] = sort
-        if order:
-            params["order"] = order
 
         data = self._request("GET", endpoint, params=params)
         return data.get("rows", [])
@@ -682,10 +683,9 @@ def manage_assets(
                 params = {"limit": limit, "offset": offset}
                 if search:
                     params["search"] = search
-                if sort:
-                    params["sort"] = sort
-                if order:
-                    params["order"] = order
+                # Default sort=id, order=asc for stable offset-based pagination
+                params["sort"] = sort or "id"
+                params["order"] = order or "asc"
                 # Add filter parameters
                 if status_id:
                     params["status_id"] = status_id
@@ -1292,10 +1292,9 @@ def manage_consumables(
                 params = {"limit": limit, "offset": offset}
                 if search:
                     params["search"] = search
-                if sort:
-                    params["sort"] = sort
-                if order:
-                    params["order"] = order
+                # Default sort=id, order=asc for stable offset-based pagination
+                params["sort"] = sort or "id"
+                params["order"] = order or "asc"
                 
                 consumables = client.consumables.list(**params)
                 
@@ -1463,10 +1462,9 @@ def manage_categories(
                 params = {"limit": limit, "offset": offset}
                 if search:
                     params["search"] = search
-                if sort:
-                    params["sort"] = sort
-                if order:
-                    params["order"] = order
+                # Default sort=id, order=asc for stable offset-based pagination
+                params["sort"] = sort or "id"
+                params["order"] = order or "asc"
 
                 categories = client.categories.list(**params)
 
@@ -1624,10 +1622,9 @@ def manage_manufacturers(
                 params = {"limit": limit, "offset": offset}
                 if search:
                     params["search"] = search
-                if sort:
-                    params["sort"] = sort
-                if order:
-                    params["order"] = order
+                # Default sort=id, order=asc for stable offset-based pagination
+                params["sort"] = sort or "id"
+                params["order"] = order or "asc"
 
                 manufacturers = client.manufacturers.list(**params)
 
@@ -1787,10 +1784,9 @@ def manage_models(
                 params = {"limit": limit, "offset": offset}
                 if search:
                     params["search"] = search
-                if sort:
-                    params["sort"] = sort
-                if order:
-                    params["order"] = order
+                # Default sort=id, order=asc for stable offset-based pagination
+                params["sort"] = sort or "id"
+                params["order"] = order or "asc"
 
                 models = client.models.list(**params)
 
@@ -2142,10 +2138,9 @@ def manage_locations(
                 params = {"limit": limit, "offset": offset}
                 if search:
                     params["search"] = search
-                if sort:
-                    params["sort"] = sort
-                if order:
-                    params["order"] = order
+                # Default sort=id, order=asc for stable offset-based pagination
+                params["sort"] = sort or "id"
+                params["order"] = order or "asc"
 
                 locations = client.locations.list(**params)
 
@@ -3330,10 +3325,9 @@ def manage_users(
             params = {"limit": limit, "offset": offset}
             if search:
                 params["search"] = search
-            if sort:
-                params["sort"] = sort
-            if order:
-                params["order"] = order
+            # Default sort=id, order=asc for stable offset-based pagination
+            params["sort"] = sort or "id"
+            params["order"] = order or "asc"
             if username:
                 params["username"] = username
             if email:
@@ -3582,10 +3576,8 @@ def manage_components(
             params = {"limit": limit, "offset": offset}
             if search:
                 params["search"] = search
-            if sort:
-                params["sort"] = sort
-            if order:
-                params["order"] = order
+            params["sort"] = sort or "id"
+            params["order"] = order or "asc"
 
             components = api.list("components", **params)
 
@@ -3819,10 +3811,8 @@ def manage_companies(
             params = {"limit": limit, "offset": offset}
             if search:
                 params["search"] = search
-            if sort:
-                params["sort"] = sort
-            if order:
-                params["order"] = order
+            params["sort"] = sort or "id"
+            params["order"] = order or "asc"
 
             companies = api.list("companies", **params)
 
@@ -3965,10 +3955,8 @@ def manage_departments(
             params = {"limit": limit, "offset": offset}
             if search:
                 params["search"] = search
-            if sort:
-                params["sort"] = sort
-            if order:
-                params["order"] = order
+            params["sort"] = sort or "id"
+            params["order"] = order or "asc"
 
             departments = api.list("departments", **params)
 
