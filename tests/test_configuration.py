@@ -30,9 +30,9 @@ class TestManageCategories:
         result = get_tool_fn(manage_categories)(action="get", category_id=1)
         assert result["success"] is True
 
-    def test_list(self, mock_client):
+    def test_list(self, mock_client, mock_direct_api):
         from server import manage_categories
-        mock_client.categories.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_categories)(action="list")
         assert result["success"] is True
 
@@ -62,9 +62,9 @@ class TestManageManufacturers:
         result = get_tool_fn(manage_manufacturers)(action="get", manufacturer_id=1)
         assert result["success"] is True
 
-    def test_list(self, mock_client):
+    def test_list(self, mock_client, mock_direct_api):
         from server import manage_manufacturers
-        mock_client.manufacturers.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_manufacturers)(action="list")
         assert result["success"] is True
 
@@ -94,9 +94,9 @@ class TestManageModels:
         result = get_tool_fn(manage_models)(action="get", model_id=1)
         assert result["success"] is True
 
-    def test_list(self, mock_client):
+    def test_list(self, mock_client, mock_direct_api):
         from server import manage_models
-        mock_client.models.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_models)(action="list")
         assert result["success"] is True
 
@@ -140,7 +140,7 @@ class TestManageStatusLabels:
 
     def test_list(self, mock_direct_api):
         from server import manage_status_labels
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_status_labels)(action="list")
         assert result["success"] is True
 
@@ -184,9 +184,9 @@ class TestManageLocations:
         result = get_tool_fn(manage_locations)(action="get", location_id=1)
         assert result["success"] is True
 
-    def test_list(self, mock_client):
+    def test_list(self, mock_client, mock_direct_api):
         from server import manage_locations
-        mock_client.locations.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_locations)(action="list")
         assert result["success"] is True
 
@@ -230,7 +230,7 @@ class TestManageSuppliers:
 
     def test_list(self, mock_direct_api):
         from server import manage_suppliers
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_suppliers)(action="list")
         assert result["success"] is True
 
@@ -256,7 +256,7 @@ class TestManageDepreciations:
 
     def test_list(self, mock_direct_api):
         from server import manage_depreciations
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_depreciations)(action="list")
         assert result["success"] is True
 

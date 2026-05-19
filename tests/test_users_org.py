@@ -42,7 +42,7 @@ class TestManageUsers:
 
     def test_list(self, mock_direct_api):
         from server import manage_users
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_users)(action="list")
         assert result["success"] is True
 
@@ -163,7 +163,7 @@ class TestManageCompanies:
 
     def test_list(self, mock_direct_api):
         from server import manage_companies
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_companies)(action="list")
         assert result["success"] is True
 
@@ -194,7 +194,7 @@ class TestManageDepartments:
 
     def test_list(self, mock_direct_api):
         from server import manage_departments
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_departments)(action="list")
         assert result["success"] is True
 
@@ -225,7 +225,7 @@ class TestManageGroups:
 
     def test_list(self, mock_direct_api):
         from server import manage_groups
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_groups)(action="list")
         assert result["success"] is True
 

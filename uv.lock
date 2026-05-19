@@ -1215,8 +1215,8 @@ dependencies = [
 
 [[package]]
 name = "snipeit-mcp"
-version = "1.2.0"
-source = { virtual = "." }
+version = "1.4.0"
+source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "requests" },

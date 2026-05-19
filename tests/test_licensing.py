@@ -40,7 +40,7 @@ class TestManageLicenses:
 
     def test_list(self, mock_direct_api):
         from server import manage_licenses
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_licenses)(action="list")
         assert result["success"] is True
         assert result["count"] == 0

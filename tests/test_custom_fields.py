@@ -39,7 +39,7 @@ class TestManageFields:
 
     def test_list(self, mock_direct_api):
         from server import manage_fields
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_fields)(action="list")
         assert result["success"] is True
 
@@ -105,7 +105,7 @@ class TestManageFieldsets:
 
     def test_list(self, mock_direct_api):
         from server import manage_fieldsets
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_fieldsets)(action="list")
         assert result["success"] is True
 

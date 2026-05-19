@@ -41,9 +41,9 @@ class TestManageConsumables:
         result = get_tool_fn(manage_consumables)(action="get")
         assert result["success"] is False
 
-    def test_list(self, mock_client):
+    def test_list(self, mock_client, mock_direct_api):
         from server import manage_consumables
-        mock_client.consumables.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_consumables)(action="list")
         assert result["success"] is True
         assert result["count"] == 0
@@ -96,7 +96,7 @@ class TestManageComponents:
 
     def test_list(self, mock_direct_api):
         from server import manage_components
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_components)(action="list")
         assert result["success"] is True
 
@@ -173,7 +173,7 @@ class TestManageAccessories:
 
     def test_list(self, mock_direct_api):
         from server import manage_accessories
-        mock_direct_api.list.return_value = []
+        mock_direct_api.list_page.return_value = ([], 0)
         result = get_tool_fn(manage_accessories)(action="list")
         assert result["success"] is True
 

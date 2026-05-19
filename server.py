@@ -143,18 +143,33 @@ class SnipeITDirectAPI:
     def list(self, endpoint: str, limit: int = 50, offset: int = 0,
              search: str | None = None, sort: str | None = None,
              order: str | None = None) -> list[dict]:
-        """List resources with pagination.
+        """List resources, returning only rows (back-compat).
 
         Defaults to sort=id, order=asc to ensure deterministic ordering
         across paginated requests and prevent duplicate/missing records.
+        """
+        return self.list_page(endpoint, limit, offset, search, sort, order)[0]
+
+    def list_page(self, endpoint: str, limit: int = 50, offset: int = 0,
+                  search: str | None = None, sort: str | None = None,
+                  order: str | None = None,
+                  extra_params: dict | None = None):
+        """List resources with pagination, returning (rows, total).
+
+        `total` is the Snipe-IT-reported full count so callers can compute
+        has_more. Defaults sort=id, order=asc for stable offset pagination.
         """
         params = {"limit": limit, "offset": offset,
                   "sort": sort or "id", "order": order or "asc"}
         if search:
             params["search"] = search
+        if extra_params:
+            params.update({k: v for k, v in extra_params.items() if v is not None})
 
         data = self._request("GET", endpoint, params=params)
-        return data.get("rows", [])
+        rows = data.get("rows", [])
+        total = data.get("total", len(rows))
+        return rows, total
 
     def get(self, endpoint: str, resource_id: int) -> dict:
         """Get a single resource by ID."""
@@ -176,6 +191,30 @@ class SnipeITDirectAPI:
 def get_direct_api() -> SnipeITDirectAPI:
     """Get a direct API client instance."""
     return SnipeITDirectAPI()
+
+
+def pagination_meta(count: int, total: int, limit: int, offset: int) -> dict:
+    """Build pagination metadata for list responses."""
+    return {
+        "count": count,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": (offset + count) < total,
+    }
+
+
+def fetch_total(endpoint: str, **filters: Any) -> int:
+    """Fetch only the `total` for an endpoint with given filters.
+
+    Used to enrich list responses backed by the snipeit-python client
+    library, which returns rows but drops the total.
+    """
+    api = get_direct_api()
+    params = {"limit": 1, "offset": 0}
+    params.update({k: v for k, v in filters.items() if v is not None})
+    data = api._request("GET", endpoint, params=params)
+    return data.get("total", 0)
 
 
 # Standard API fields accepted by Snipe-IT hardware PATCH/POST endpoints.
@@ -542,8 +581,8 @@ def manage_assets(
     serial: Annotated[str | None, "Serial number (alternative to asset_id for get)"] = None,
     asset_data: Annotated[AssetData | None, "Asset data for standard fields (required for create, optional for update)"] = None,
     extra_fields: Annotated[dict | None, "Additional fields not in AssetData: asset_eol_date, custom fields (_snipeit_*), etc. For update, fields are validated against the asset's model fieldset."] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return per page (for list action). Default 20 because each asset payload is large (~5KB with custom fields)."] = 20,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action). Valid fields: id, name, asset_tag, serial, model, model_number, last_checkout, category, manufacturer, notes, expected_checkin, order_number, companyName, location, image, status_label, assigned_to, created_at, purchase_date, purchase_cost"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -710,9 +749,8 @@ def manage_assets(
                 return {
                     "success": True,
                     "action": "list",
-                    "count": len(rows),
-                    "total": assets_result.get("total", len(rows)),
-                    "assets": rows
+                    **pagination_meta(len(rows), assets_result.get("total", len(rows)), limit, offset),
+                    "assets": rows,
                 }
             
             elif action == "update":
@@ -1212,8 +1250,8 @@ def manage_consumables(
     ],
     consumable_id: Annotated[int | None, "Consumable ID (required for get, update, delete)"] = None,
     consumable_data: Annotated[ConsumableData | None, "Consumable data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -1296,23 +1334,24 @@ def manage_consumables(
                 params["sort"] = sort or "id"
                 params["order"] = order or "asc"
                 
-                consumables = client.consumables.list(**params)
-                
+                api = get_direct_api()
+                consumables, _total = api.list_page("consumables", **params)
+
                 consumables_list = [
                     {
-                        "id": consumable.id,
-                        "name": getattr(consumable, "name", None),
-                        "qty": getattr(consumable, "qty", None),
-                        "remaining": getattr(consumable, "remaining", None),
+                        "id": c.get("id"),
+                        "name": c.get("name"),
+                        "qty": c.get("qty"),
+                        "remaining": c.get("remaining"),
                     }
-                    for consumable in consumables
+                    for c in consumables
                 ]
-                
+
                 return {
                     "success": True,
                     "action": "list",
-                    "count": len(consumables_list),
-                    "consumables": consumables_list
+                    **pagination_meta(len(consumables_list), _total, limit, offset),
+                    "consumables": consumables_list,
                 }
             
             elif action == "update":
@@ -1384,8 +1423,8 @@ def manage_categories(
     ],
     category_id: Annotated[int | None, "Category ID (required for get, update, delete)"] = None,
     category_data: Annotated[CategoryData | None, "Category data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -1466,14 +1505,15 @@ def manage_categories(
                 params["sort"] = sort or "id"
                 params["order"] = order or "asc"
 
-                categories = client.categories.list(**params)
+                api = get_direct_api()
+                categories, _total = api.list_page("categories", **params)
 
                 categories_list = [
                     {
-                        "id": cat.id,
-                        "name": getattr(cat, "name", None),
-                        "category_type": getattr(cat, "category_type", None),
-                        "assets_count": getattr(cat, "assets_count", None),
+                        "id": cat.get("id"),
+                        "name": cat.get("name"),
+                        "category_type": cat.get("category_type"),
+                        "assets_count": cat.get("assets_count"),
                     }
                     for cat in categories
                 ]
@@ -1481,8 +1521,8 @@ def manage_categories(
                 return {
                     "success": True,
                     "action": "list",
-                    "count": len(categories_list),
-                    "categories": categories_list
+                    **pagination_meta(len(categories_list), _total, limit, offset),
+                    "categories": categories_list,
                 }
 
             elif action == "update":
@@ -1547,8 +1587,8 @@ def manage_manufacturers(
     ],
     manufacturer_id: Annotated[int | None, "Manufacturer ID (required for get, update, delete)"] = None,
     manufacturer_data: Annotated[ManufacturerData | None, "Manufacturer data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -1626,13 +1666,14 @@ def manage_manufacturers(
                 params["sort"] = sort or "id"
                 params["order"] = order or "asc"
 
-                manufacturers = client.manufacturers.list(**params)
+                api = get_direct_api()
+                manufacturers, _total = api.list_page("manufacturers", **params)
 
                 manufacturers_list = [
                     {
-                        "id": mfr.id,
-                        "name": getattr(mfr, "name", None),
-                        "assets_count": getattr(mfr, "assets_count", None),
+                        "id": mfr.get("id"),
+                        "name": mfr.get("name"),
+                        "assets_count": mfr.get("assets_count"),
                     }
                     for mfr in manufacturers
                 ]
@@ -1640,8 +1681,8 @@ def manage_manufacturers(
                 return {
                     "success": True,
                     "action": "list",
-                    "count": len(manufacturers_list),
-                    "manufacturers": manufacturers_list
+                    **pagination_meta(len(manufacturers_list), _total, limit, offset),
+                    "manufacturers": manufacturers_list,
                 }
 
             elif action == "update":
@@ -1706,8 +1747,8 @@ def manage_models(
     ],
     model_id: Annotated[int | None, "Model ID (required for get, update, delete, assets)"] = None,
     model_data: Annotated[AssetModelData | None, "Model data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list/assets actions)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list/assets actions)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list/assets actions)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list/assets actions)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -1788,15 +1829,16 @@ def manage_models(
                 params["sort"] = sort or "id"
                 params["order"] = order or "asc"
 
-                models = client.models.list(**params)
+                api = get_direct_api()
+                models, _total = api.list_page("models", **params)
 
                 models_list = [
                     {
-                        "id": m.id,
-                        "name": getattr(m, "name", None),
-                        "model_number": getattr(m, "model_number", None),
-                        "manufacturer": getattr(m, "manufacturer", {}).get("name") if hasattr(m, "manufacturer") and isinstance(getattr(m, "manufacturer", None), dict) else None,
-                        "assets_count": getattr(m, "assets_count", None),
+                        "id": m.get("id"),
+                        "name": m.get("name"),
+                        "model_number": m.get("model_number"),
+                        "manufacturer": (m.get("manufacturer") or {}).get("name") if isinstance(m.get("manufacturer"), dict) else None,
+                        "assets_count": m.get("assets_count"),
                     }
                     for m in models
                 ]
@@ -1804,8 +1846,8 @@ def manage_models(
                 return {
                     "success": True,
                     "action": "list",
-                    "count": len(models_list),
-                    "models": models_list
+                    **pagination_meta(len(models_list), _total, limit, offset),
+                    "models": models_list,
                 }
 
             elif action == "update":
@@ -1852,9 +1894,8 @@ def manage_models(
                     "success": True,
                     "action": "assets",
                     "model_id": model_id,
-                    "count": len(assets),
-                    "total": result.get("total", len(assets)),
-                    "assets": assets
+                    **pagination_meta(len(assets), result.get("total", len(assets)), limit, offset),
+                    "assets": assets,
                 }
 
     except SnipeITNotFoundError as e:
@@ -1888,8 +1929,8 @@ def manage_status_labels(
     ],
     status_label_id: Annotated[int | None, "Status label ID (required for get, update, delete, assets)"] = None,
     status_label_data: Annotated[StatusLabelData | None, "Status label data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list/assets actions)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list/assets actions)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list/assets actions)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list/assets actions)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -1957,8 +1998,10 @@ def manage_status_labels(
             }
 
         elif action == "list":
-            status_labels = api.list("statuslabels", limit=limit or 50, offset=offset or 0,
-                                     search=search, sort=sort, order=order)
+            status_labels, total = api.list_page(
+                "statuslabels", limit=limit, offset=offset,
+                search=search, sort=sort, order=order,
+            )
 
             status_labels_list = [
                 {
@@ -1973,8 +2016,8 @@ def manage_status_labels(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(status_labels_list),
-                "status_labels": status_labels_list
+                **pagination_meta(len(status_labels_list), total, limit, offset),
+                "status_labels": status_labels_list,
             }
 
         elif action == "update":
@@ -2020,8 +2063,7 @@ def manage_status_labels(
                 "success": True,
                 "action": "assets",
                 "status_label_id": status_label_id,
-                "count": len(assets),
-                "total": result.get("total", len(assets)),
+                **pagination_meta(len(assets), result.get("total", len(assets)), limit, offset),
                 "assets": assets
             }
 
@@ -2056,8 +2098,8 @@ def manage_locations(
     ],
     location_id: Annotated[int | None, "Location ID (required for get, update, delete, assets, users)"] = None,
     location_data: Annotated[LocationData | None, "Location data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list/assets/users actions)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list/assets/users actions)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list/assets/users actions)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list/assets/users actions)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -2142,14 +2184,15 @@ def manage_locations(
                 params["sort"] = sort or "id"
                 params["order"] = order or "asc"
 
-                locations = client.locations.list(**params)
+                api = get_direct_api()
+                locations, _total = api.list_page("locations", **params)
 
                 locations_list = [
                     {
-                        "id": loc.id,
-                        "name": getattr(loc, "name", None),
-                        "city": getattr(loc, "city", None),
-                        "assets_count": getattr(loc, "assets_count", None),
+                        "id": loc.get("id"),
+                        "name": loc.get("name"),
+                        "city": loc.get("city"),
+                        "assets_count": loc.get("assets_count"),
                     }
                     for loc in locations
                 ]
@@ -2157,8 +2200,8 @@ def manage_locations(
                 return {
                     "success": True,
                     "action": "list",
-                    "count": len(locations_list),
-                    "locations": locations_list
+                    **pagination_meta(len(locations_list), _total, limit, offset),
+                    "locations": locations_list,
                 }
 
             elif action == "update":
@@ -2205,8 +2248,7 @@ def manage_locations(
                     "success": True,
                     "action": "assets",
                     "location_id": location_id,
-                    "count": len(assets),
-                    "total": result.get("total", len(assets)),
+                    **pagination_meta(len(assets), result.get("total", len(assets)), limit, offset),
                     "assets": assets
                 }
 
@@ -2223,9 +2265,8 @@ def manage_locations(
                     "success": True,
                     "action": "users",
                     "location_id": location_id,
-                    "count": len(users),
-                    "total": result.get("total", len(users)),
-                    "users": users
+                    **pagination_meta(len(users), result.get("total", len(users)), limit, offset),
+                    "users": users,
                 }
 
     except SnipeITNotFoundError as e:
@@ -2259,8 +2300,8 @@ def manage_suppliers(
     ],
     supplier_id: Annotated[int | None, "Supplier ID (required for get, update, delete)"] = None,
     supplier_data: Annotated[SupplierData | None, "Supplier data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -2335,8 +2376,8 @@ def manage_suppliers(
             }
 
         elif action == "list":
-            suppliers = api.list("suppliers", limit=limit or 50, offset=offset or 0,
-                                 search=search, sort=sort, order=order)
+            suppliers, _total = api.list_page("suppliers", limit=limit, offset=offset,
+                                       search=search, sort=sort, order=order)
 
             suppliers_list = [
                 {
@@ -2350,8 +2391,8 @@ def manage_suppliers(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(suppliers_list),
-                "suppliers": suppliers_list
+                **pagination_meta(len(suppliers_list), _total, limit, offset),
+                "suppliers": suppliers_list,
             }
 
         elif action == "update":
@@ -2416,8 +2457,8 @@ def manage_depreciations(
     ],
     depreciation_id: Annotated[int | None, "Depreciation ID (required for get, update, delete)"] = None,
     depreciation_data: Annotated[DepreciationData | None, "Depreciation data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -2479,8 +2520,8 @@ def manage_depreciations(
             }
 
         elif action == "list":
-            depreciations = api.list("depreciations", limit=limit or 50, offset=offset or 0,
-                                     search=search, sort=sort, order=order)
+            depreciations, _total = api.list_page("depreciations", limit=limit, offset=offset,
+                                       search=search, sort=sort, order=order)
 
             depreciations_list = [
                 {
@@ -2494,8 +2535,8 @@ def manage_depreciations(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(depreciations_list),
-                "depreciations": depreciations_list
+                **pagination_meta(len(depreciations_list), _total, limit, offset),
+                "depreciations": depreciations_list,
             }
 
         elif action == "update":
@@ -2564,8 +2605,8 @@ def manage_licenses(
     ],
     license_id: Annotated[int | None, "License ID (required for get, update, delete)"] = None,
     license_data: Annotated[LicenseData | None, "License data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -2641,8 +2682,8 @@ def manage_licenses(
             }
 
         elif action == "list":
-            licenses = api.list("licenses", limit=limit or 50, offset=offset or 0,
-                               search=search, sort=sort, order=order)
+            licenses, _total = api.list_page("licenses", limit=limit, offset=offset,
+                                       search=search, sort=sort, order=order)
 
             licenses_list = [
                 {
@@ -2658,8 +2699,8 @@ def manage_licenses(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(licenses_list),
-                "licenses": licenses_list
+                **pagination_meta(len(licenses_list), _total, limit, offset),
+                "licenses": licenses_list,
             }
 
         elif action == "update":
@@ -2765,7 +2806,8 @@ def license_seats(
                 "action": "list",
                 "license_id": license_id,
                 "count": len(seats_list),
-                "seats": seats_list
+                "total": result.get("total", len(seats_list)),
+                "seats": seats_list,
             }
 
         elif action == "checkout":
@@ -2906,7 +2948,7 @@ def license_files(
                 "action": "list",
                 "license_id": license_id,
                 "count": len(files_list),
-                "files": files_list
+                "files": files_list,
             }
 
         elif action == "download":
@@ -2988,8 +3030,8 @@ def manage_accessories(
     ],
     accessory_id: Annotated[int | None, "Accessory ID (required for get, update, delete)"] = None,
     accessory_data: Annotated[AccessoryData | None, "Accessory data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -3065,8 +3107,8 @@ def manage_accessories(
             }
 
         elif action == "list":
-            accessories = api.list("accessories", limit=limit or 50, offset=offset or 0,
-                                   search=search, sort=sort, order=order)
+            accessories, _total = api.list_page("accessories", limit=limit, offset=offset,
+                                       search=search, sort=sort, order=order)
 
             accessories_list = [
                 {
@@ -3083,8 +3125,8 @@ def manage_accessories(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(accessories_list),
-                "accessories": accessories_list
+                **pagination_meta(len(accessories_list), _total, limit, offset),
+                "accessories": accessories_list,
             }
 
         elif action == "update":
@@ -3223,7 +3265,7 @@ def accessory_operations(
                 "action": "list_checkouts",
                 "accessory_id": accessory_id,
                 "count": len(checkouts_list),
-                "checkouts": checkouts_list
+                "checkouts": checkouts_list,
             }
 
     except SnipeITNotFoundError as e:
@@ -3261,8 +3303,8 @@ def manage_users(
     ],
     user_id: Annotated[int | None, "User ID (required for get, update, delete, restore)"] = None,
     user_data: Annotated[UserData | None, "User data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -3333,7 +3375,7 @@ def manage_users(
             if email:
                 params["email"] = email
 
-            users = api.list("users", **params)
+            users, _total = api.list_page("users", **params)
 
             users_list = [
                 {
@@ -3350,8 +3392,8 @@ def manage_users(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(users_list),
-                "users": users_list
+                **pagination_meta(len(users_list), _total, limit, offset),
+                "users": users_list,
             }
 
         elif action == "update":
@@ -3517,8 +3559,8 @@ def manage_components(
     ],
     component_id: Annotated[int | None, "Component ID (required for get, update, delete)"] = None,
     component_data: Annotated[ComponentData | None, "Component data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -3579,7 +3621,7 @@ def manage_components(
             params["sort"] = sort or "id"
             params["order"] = order or "asc"
 
-            components = api.list("components", **params)
+            components, _total = api.list_page("components", **params)
 
             components_list = [
                 {
@@ -3596,8 +3638,8 @@ def manage_components(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(components_list),
-                "components": components_list
+                **pagination_meta(len(components_list), _total, limit, offset),
+                "components": components_list,
             }
 
         elif action == "update":
@@ -3755,8 +3797,8 @@ def manage_companies(
     ],
     company_id: Annotated[int | None, "Company ID (required for get, update, delete)"] = None,
     company_data: Annotated[CompanyData | None, "Company data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -3814,7 +3856,7 @@ def manage_companies(
             params["sort"] = sort or "id"
             params["order"] = order or "asc"
 
-            companies = api.list("companies", **params)
+            companies, _total = api.list_page("companies", **params)
 
             companies_list = [
                 {
@@ -3831,8 +3873,8 @@ def manage_companies(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(companies_list),
-                "companies": companies_list
+                **pagination_meta(len(companies_list), _total, limit, offset),
+                "companies": companies_list,
             }
 
         elif action == "update":
@@ -3899,8 +3941,8 @@ def manage_departments(
     ],
     department_id: Annotated[int | None, "Department ID (required for get, update, delete)"] = None,
     department_data: Annotated[DepartmentData | None, "Department data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -3958,7 +4000,7 @@ def manage_departments(
             params["sort"] = sort or "id"
             params["order"] = order or "asc"
 
-            departments = api.list("departments", **params)
+            departments, _total = api.list_page("departments", **params)
 
             departments_list = [
                 {
@@ -3975,8 +4017,8 @@ def manage_departments(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(departments_list),
-                "departments": departments_list
+                **pagination_meta(len(departments_list), _total, limit, offset),
+                "departments": departments_list,
             }
 
         elif action == "update":
@@ -4043,8 +4085,8 @@ def manage_groups(
     ],
     group_id: Annotated[int | None, "Group ID (required for get, update, delete)"] = None,
     group_data: Annotated[GroupData | None, "Group data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
 ) -> dict[str, Any]:
     """Manage Snipe-IT permission groups with CRUD operations.
@@ -4098,7 +4140,7 @@ def manage_groups(
             if search:
                 params["search"] = search
 
-            groups = api.list("groups", **params)
+            groups, _total = api.list_page("groups", **params)
 
             groups_list = [
                 {
@@ -4113,8 +4155,8 @@ def manage_groups(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(groups_list),
-                "groups": groups_list
+                **pagination_meta(len(groups_list), _total, limit, offset),
+                "groups": groups_list,
             }
 
         elif action == "update":
@@ -4182,8 +4224,8 @@ def manage_fields(
     field_id: Annotated[int | None, "Field ID (required for get, update, delete, associate, disassociate)"] = None,
     field_data: Annotated[FieldData | None, "Field data (required for create, optional for update)"] = None,
     fieldset_id: Annotated[int | None, "Fieldset ID (required for associate/disassociate actions)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     required: Annotated[bool | None, "Whether field is required in fieldset (for associate action)"] = False,
     order: Annotated[int | None, "Display order in fieldset (for associate action)"] = None,
@@ -4241,7 +4283,7 @@ def manage_fields(
             if search:
                 params["search"] = search
 
-            fields = api.list("fields", **params)
+            fields, _total = api.list_page("fields", **params)
 
             fields_list = [
                 {
@@ -4258,8 +4300,8 @@ def manage_fields(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(fields_list),
-                "fields": fields_list
+                **pagination_meta(len(fields_list), _total, limit, offset),
+                "fields": fields_list,
             }
 
         elif action == "update":
@@ -4354,8 +4396,8 @@ def manage_fieldsets(
     ],
     fieldset_id: Annotated[int | None, "Fieldset ID (required for get, update, delete, fields, reorder)"] = None,
     fieldset_data: Annotated[FieldsetData | None, "Fieldset data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     field_order: Annotated[list[int] | None, "Ordered list of field IDs (for reorder action)"] = None,
 ) -> dict[str, Any]:
     """Manage Snipe-IT fieldsets with CRUD operations.
@@ -4409,7 +4451,7 @@ def manage_fieldsets(
 
         elif action == "list":
             params = {"limit": limit, "offset": offset}
-            fieldsets = api.list("fieldsets", **params)
+            fieldsets, _total = api.list_page("fieldsets", **params)
 
             fieldsets_list = [
                 {
@@ -4424,8 +4466,8 @@ def manage_fieldsets(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(fieldsets_list),
-                "fieldsets": fieldsets_list
+                **pagination_meta(len(fieldsets_list), _total, limit, offset),
+                "fieldsets": fieldsets_list,
             }
 
         elif action == "update":
@@ -4524,8 +4566,8 @@ def activity_reports(
         Literal["list", "item_activity"],
         "The action to perform"
     ],
-    limit: Annotated[int | None, "Number of results to return"] = 50,
-    offset: Annotated[int | None, "Number of results to skip"] = 0,
+    limit: Annotated[int, "Number of results to return"] = 50,
+    offset: Annotated[int, "Number of results to skip"] = 0,
     search: Annotated[str | None, "Search query"] = None,
     target_type: Annotated[str | None, "Filter by target type (e.g., 'asset', 'license', 'user')"] = None,
     target_id: Annotated[int | None, "Filter by target ID"] = None,
@@ -4561,6 +4603,7 @@ def activity_reports(
 
             result = api._request("GET", "reports/activity", params=params)
             activities = result.get("rows", [])
+            _total = result.get("total", len(activities))
 
             activities_list = [
                 {
@@ -4579,8 +4622,8 @@ def activity_reports(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(activities_list),
-                "activities": activities_list
+                **pagination_meta(len(activities_list), _total, limit, offset),
+                "activities": activities_list,
             }
 
         elif action == "item_activity":
@@ -4991,8 +5034,8 @@ def audit_tracking(
         Literal["due", "overdue", "summary"],
         "The audit tracking action"
     ],
-    limit: Annotated[int | None, "Number of results to return"] = 50,
-    offset: Annotated[int | None, "Number of results to skip"] = 0,
+    limit: Annotated[int, "Number of results to return"] = 50,
+    offset: Annotated[int, "Number of results to skip"] = 0,
 ) -> dict[str, Any]:
     """Track asset audit status for compliance.
 
@@ -5021,8 +5064,7 @@ def audit_tracking(
             return {
                 "success": True,
                 "action": "due",
-                "count": len(assets),
-                "total": result.get("total", len(assets)),
+                **pagination_meta(len(assets), result.get("total", len(assets)), limit, offset),
                 "assets": assets
             }
 
@@ -5034,8 +5076,7 @@ def audit_tracking(
             return {
                 "success": True,
                 "action": "overdue",
-                "count": len(assets),
-                "total": result.get("total", len(assets)),
+                **pagination_meta(len(assets), result.get("total", len(assets)), limit, offset),
                 "assets": assets
             }
 
@@ -5338,7 +5379,7 @@ def model_files(
                 "action": "list",
                 "model_id": model_id,
                 "count": len(files_list),
-                "files": files_list
+                "files": files_list,
             }
 
         elif action == "download":
