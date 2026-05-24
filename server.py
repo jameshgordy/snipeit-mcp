@@ -540,20 +540,8 @@ def manage_assets(
     asset_id: Annotated[int | None, "Asset ID (required for get, update, delete)"] = None,
     asset_tag: Annotated[str | None, "Asset tag (alternative to asset_id for get)"] = None,
     serial: Annotated[str | None, "Serial number (alternative to asset_id for get)"] = None,
-    asset_data: Annotated[
-        AssetData | None,
-        Field(
-            description="Asset data for standard fields (required for create, optional for update)",
-            json_schema_extra={"type": "object", "additionalProperties": True},
-        ),
-    ] = None,
-    extra_fields: Annotated[
-        dict[str, Any] | None,
-        Field(
-            description="Additional fields not in AssetData: asset_eol_date, custom fields (_snipeit_*), etc. For update, fields are validated against the asset's model fieldset.",
-            json_schema_extra={"type": "object", "additionalProperties": True},
-        ),
-    ] = None,
+    asset_data: Annotated[AssetData | None, "Asset data for standard fields (required for create, optional for update)"] = None,
+    extra_fields: Annotated[dict | None, "Additional fields not in AssetData: asset_eol_date, custom fields (_snipeit_*), etc. For update, fields are validated against the asset's model fieldset."] = None,
     limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
     offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,

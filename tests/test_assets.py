@@ -2,9 +2,7 @@
 
 import os
 import sys
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -13,22 +11,6 @@ def get_tool_fn(tool):
 
 
 class TestManageAssets:
-    def test_manage_assets_schema_marks_object_inputs_as_objects(self):
-        import server
-
-        params = server.mcp._tool_manager._tools["manage_assets"].parameters["properties"]
-
-        asset_data_schema = params["asset_data"]
-        extra_fields_schema = params["extra_fields"]
-
-        assert asset_data_schema["type"] == "object"
-        assert asset_data_schema["additionalProperties"] is True
-        assert any(branch.get("$ref") == "#/$defs/AssetData" for branch in asset_data_schema["anyOf"])
-
-        assert extra_fields_schema["type"] == "object"
-        assert extra_fields_schema["additionalProperties"] is True
-        assert any(branch.get("type") == "object" for branch in extra_fields_schema["anyOf"])
-
     def test_create(self, mock_client, mock_direct_api):
         from server import manage_assets, AssetData
         mock_direct_api._request.return_value = {"status": "success", "payload": {"id": 1, "asset_tag": "LAP-001", "name": "Test Laptop"}}
@@ -113,49 +95,6 @@ class TestManageAssets:
         result = get_tool_fn(manage_assets)(action="update", asset_id=1, asset_data=AssetData(name="Updated"))
         assert result["success"] is True
         assert result["action"] == "update"
-
-    @pytest.mark.asyncio
-    async def test_tool_run_accepts_dict_asset_data(self, mock_client, mock_direct_api):
-        import server
-
-        tool = server.mcp._tool_manager._tools["manage_assets"]
-        mock_direct_api._request.return_value = {"status": "success", "payload": {"id": 1, "name": "Test Laptop"}}
-
-        result = await tool.run({
-            "action": "create",
-            "asset_data": {"status_id": 1, "model_id": 5, "name": "Test Laptop"},
-        })
-
-        assert result.structured_content["success"] is True
-        assert result.structured_content["action"] == "create"
-        mock_direct_api._request.assert_called_once_with(
-            "POST",
-            "hardware",
-            json={"status_id": 1, "model_id": 5, "name": "Test Laptop"},
-        )
-
-    @pytest.mark.asyncio
-    async def test_tool_run_accepts_dict_extra_fields(self, mock_client, mock_direct_api):
-        import server
-
-        tool = server.mcp._tool_manager._tools["manage_assets"]
-        mock_direct_api._request.side_effect = [
-            {"id": 1, "custom_fields": {"Hostname": {"field": "_snipeit_hostname_2"}}},
-            {"status": "success", "payload": {"id": 1, "name": "Updated"}},
-        ]
-
-        result = await tool.run({
-            "action": "update",
-            "asset_id": 1,
-            "extra_fields": {"_snipeit_hostname_2": "FL142"},
-        })
-
-        assert result.structured_content["success"] is True
-        assert result.structured_content["action"] == "update"
-        assert mock_direct_api._request.call_args_list == [
-            call("GET", "hardware/1"),
-            call("PATCH", "hardware/1", json={"_snipeit_hostname_2": "FL142"}),
-        ]
 
     def test_update_missing_id(self, mock_client):
         from server import manage_assets, AssetData
