@@ -340,7 +340,7 @@ Add to your Cursor MCP settings with the same configuration format as above.
 
 All tools return structured JSON responses:
 
-**Success:**
+**Success (create):**
 ```json
 {
   "success": true,
@@ -352,6 +352,30 @@ All tools return structured JSON responses:
   }
 }
 ```
+
+**Success (list):**
+
+All list endpoints return pagination metadata:
+```json
+{
+  "success": true,
+  "action": "list",
+  "count": 3,
+  "total": 1602,
+  "limit": 20,
+  "offset": 0,
+  "has_more": true,
+  "assets": [ ... ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `count` | Number of items in this page |
+| `total` | Total items matching the query |
+| `limit` | Page size used |
+| `offset` | Starting offset |
+| `has_more` | `true` if more pages remain |
 
 **Error:**
 ```json
