@@ -134,10 +134,28 @@ class TestAccessoryData:
         assert a.qty == 50
 
 class TestAccessoryCheckout:
-    def test_valid(self):
+    def test_valid_user(self):
         from snipeit_mcp import AccessoryCheckout
-        a = AccessoryCheckout(assigned_to=5, note="For project")
-        assert a.assigned_to == 5
+        a = AccessoryCheckout(checkout_to_type="user", assigned_to_id=5, note="For project")
+        assert a.checkout_to_type == "user"
+        assert a.assigned_to_id == 5
+
+    def test_valid_asset(self):
+        from snipeit_mcp import AccessoryCheckout
+        a = AccessoryCheckout(checkout_to_type="asset", assigned_to_id=42)
+        assert a.checkout_to_type == "asset"
+
+    def test_valid_location(self):
+        from snipeit_mcp import AccessoryCheckout
+        a = AccessoryCheckout(checkout_to_type="location", assigned_to_id=7, checkout_qty=3)
+        assert a.checkout_qty == 3
+
+    def test_missing_required_fields(self):
+        import pytest
+        from pydantic import ValidationError
+        from snipeit_mcp import AccessoryCheckout
+        with pytest.raises(ValidationError):
+            AccessoryCheckout()
 
 class TestUserData:
     def test_valid(self):
