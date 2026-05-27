@@ -3,6 +3,7 @@
 import logging
 from typing import Annotated, Any, Literal
 
+import requests
 from pydantic import Field
 from snipeit.exceptions import (
     SnipeITAuthenticationError,
@@ -101,7 +102,7 @@ def manage_backups(
 
             url = f"{api.base_url}/api/v1/settings/backups/download/{filename}"
             headers = {
-                "Authorization": f"Bearer {SNIPEIT_TOKEN}",
+                "Authorization": f"Bearer {_client.SNIPEIT_TOKEN}",
                 "Accept": "application/octet-stream",
             }
             response = requests.get(url, headers=headers)

@@ -3,6 +3,7 @@
 import logging
 from typing import Annotated, Any, Literal
 
+import requests
 from pydantic import Field
 from snipeit.exceptions import (
     SnipeITAuthenticationError,
@@ -94,7 +95,7 @@ def manage_imports(
                 files = {"file": (filename, f, "text/csv")}
                 url = f"{api.base_url}/api/v1/imports"
                 headers = {
-                    "Authorization": f"Bearer {SNIPEIT_TOKEN}",
+                    "Authorization": f"Bearer {_client.SNIPEIT_TOKEN}",
                     "Accept": "application/json",
                 }
                 response = requests.post(url, headers=headers, files=files)

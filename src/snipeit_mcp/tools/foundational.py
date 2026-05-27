@@ -3,6 +3,7 @@
 import logging
 from typing import Annotated, Any, Literal
 
+import requests
 from pydantic import Field
 from snipeit.exceptions import (
     SnipeITAuthenticationError,
@@ -1243,7 +1244,7 @@ def model_files(
                 files = {"file": (filename, f)}
                 url = f"{api.base_url}/api/v1/models/{model_id}/files"
                 headers = {
-                    "Authorization": f"Bearer {SNIPEIT_TOKEN}",
+                    "Authorization": f"Bearer {_client.SNIPEIT_TOKEN}",
                     "Accept": "application/json",
                 }
                 response = requests.post(url, headers=headers, files=files)
@@ -1289,7 +1290,7 @@ def model_files(
 
             url = f"{api.base_url}/api/v1/models/{model_id}/files/{file_id}"
             headers = {
-                "Authorization": f"Bearer {SNIPEIT_TOKEN}",
+                "Authorization": f"Bearer {_client.SNIPEIT_TOKEN}",
                 "Accept": "application/octet-stream",
             }
             response = requests.get(url, headers=headers)
