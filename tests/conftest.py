@@ -1,8 +1,9 @@
 """Shared fixtures for Snipe-IT MCP Server tests."""
 
-import pytest
 import os
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 ENV_VARS = {
     'SNIPEIT_URL': 'https://test.snipeit.com',
@@ -18,7 +19,9 @@ def mock_env():
 
 @pytest.fixture
 def mock_direct_api():
-    with patch('server.get_direct_api') as m:
+    # Tool modules import client as a module (``from .. import client``) and call
+    # ``client.get_direct_api()`` — patching the source propagates to all tools.
+    with patch('snipeit_mcp.client.get_direct_api') as m:
         api = MagicMock()
         m.return_value = api
         yield api
@@ -26,7 +29,7 @@ def mock_direct_api():
 
 @pytest.fixture
 def mock_client():
-    with patch('server.get_snipeit_client') as m:
+    with patch('snipeit_mcp.client.get_snipeit_client') as m:
         client = MagicMock()
         client.__enter__ = MagicMock(return_value=client)
         client.__exit__ = MagicMock(return_value=False)

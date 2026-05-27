@@ -5,7 +5,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY pyproject.toml uv.lock server.py ./
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ src/
 COPY prompts/ prompts/
 
 RUN pip install --no-cache-dir uv && \
@@ -20,7 +21,6 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin/snipeit-mcp /usr/local/bin/snipeit-mcp
 
 WORKDIR /app
-COPY --chown=appuser:appuser server.py ./
 COPY --chown=appuser:appuser prompts/ prompts/
 
 USER appuser

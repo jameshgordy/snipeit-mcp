@@ -143,8 +143,7 @@ Add to your MCP configuration file:
         "--directory",
         "/path/to/snipeit-mcp",
         "run",
-        "python",
-        "server.py"
+        "snipeit-mcp"
       ],
       "env": {
         "SNIPEIT_URL": "https://your-snipeit-instance.com",

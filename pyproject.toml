@@ -21,14 +21,14 @@ Repository = "https://github.com/jameshgordy/snipeit-mcp"
 Issues = "https://github.com/jameshgordy/snipeit-mcp/issues"
 
 [project.scripts]
-snipeit-mcp = "server:main"
+snipeit-mcp = "snipeit_mcp.__main__:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-py-modules = ["server"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.uv]
 
@@ -36,4 +36,5 @@ py-modules = ["server"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+pythonpath = ["src"]
 asyncio_mode = "auto"
