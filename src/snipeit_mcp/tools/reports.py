@@ -29,8 +29,8 @@ def activity_reports(
         Literal["list", "item_activity"],
         "The action to perform"
     ],
-    limit: Annotated[int | None, "Number of results to return"] = 50,
-    offset: Annotated[int | None, "Number of results to skip"] = 0,
+    limit: Annotated[int, "Number of results to return"] = 50,
+    offset: Annotated[int, "Number of results to skip"] = 0,
     search: Annotated[str | None, "Search query"] = None,
     target_type: Annotated[str | None, "Filter by target type (e.g., 'asset', 'license', 'user')"] = None,
     target_id: Annotated[int | None, "Filter by target ID"] = None,
@@ -66,6 +66,7 @@ def activity_reports(
 
             result = api._request("GET", "reports/activity", params=params)
             activities = result.get("rows", [])
+            _total = result.get("total", len(activities))
 
             activities_list = [
                 {
@@ -84,8 +85,8 @@ def activity_reports(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(activities_list),
-                "activities": activities_list
+                **_client.pagination_meta(len(activities_list), _total, limit, offset),
+                "activities": activities_list,
             }
 
         elif action == "item_activity":
@@ -193,8 +194,8 @@ def audit_tracking(
         Literal["due", "overdue", "summary"],
         "The audit tracking action"
     ],
-    limit: Annotated[int | None, "Number of results to return"] = 50,
-    offset: Annotated[int | None, "Number of results to skip"] = 0,
+    limit: Annotated[int, "Number of results to return"] = 50,
+    offset: Annotated[int, "Number of results to skip"] = 0,
 ) -> dict[str, Any]:
     """Track asset audit status for compliance.
 
@@ -223,9 +224,8 @@ def audit_tracking(
             return {
                 "success": True,
                 "action": "due",
-                "count": len(assets),
-                "total": result.get("total", len(assets)),
-                "assets": assets
+                **_client.pagination_meta(len(assets), result.get("total", len(assets)), limit, offset),
+                "assets": assets,
             }
 
         elif action == "overdue":
@@ -236,9 +236,8 @@ def audit_tracking(
             return {
                 "success": True,
                 "action": "overdue",
-                "count": len(assets),
-                "total": result.get("total", len(assets)),
-                "assets": assets
+                **_client.pagination_meta(len(assets), result.get("total", len(assets)), limit, offset),
+                "assets": assets,
             }
 
         elif action == "summary":

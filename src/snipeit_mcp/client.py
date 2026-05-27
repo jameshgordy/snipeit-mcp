@@ -7,6 +7,8 @@ Tool modules access the credentials and clients defined here via
 the patch propagate to every tool module.
 """
 
+from __future__ import annotations
+
 import os
 
 import requests
@@ -68,18 +70,30 @@ class SnipeITDirectAPI:
     def list(self, endpoint: str, limit: int = 50, offset: int = 0,
              search: str | None = None, sort: str | None = None,
              order: str | None = None) -> list[dict]:
-        """List resources with pagination.
+        """List resources, returning only rows (back-compat wrapper)."""
+        return self.list_page(endpoint, limit, offset, search, sort, order)[0]
 
-        Defaults to sort=id, order=asc to ensure deterministic ordering
-        across paginated requests and prevent duplicate/missing records.
+    def list_page(self, endpoint: str, limit: int = 50, offset: int = 0,
+                  search: str | None = None, sort: str | None = None,
+                  order: str | None = None,
+                  extra_params: dict | None = None) -> tuple[list[dict], int]:
+        """List resources with pagination, returning ``(rows, total)``.
+
+        ``total`` is the Snipe-IT-reported full count so callers can compute
+        ``has_more``. Defaults sort=id, order=asc to ensure deterministic
+        ordering across paginated requests.
         """
         params = {"limit": limit, "offset": offset,
                   "sort": sort or "id", "order": order or "asc"}
         if search:
             params["search"] = search
+        if extra_params:
+            params.update({k: v for k, v in extra_params.items() if v is not None})
 
         data = self._request("GET", endpoint, params=params)
-        return data.get("rows", [])
+        rows = data.get("rows", [])
+        total = data.get("total", len(rows))
+        return rows, total
 
     def get(self, endpoint: str, resource_id: int) -> dict:
         """Get a single resource by ID."""
@@ -101,6 +115,17 @@ class SnipeITDirectAPI:
 def get_direct_api() -> SnipeITDirectAPI:
     """Get a direct API client instance."""
     return SnipeITDirectAPI()
+
+
+def pagination_meta(count: int, total: int, limit: int, offset: int) -> dict:
+    """Build pagination metadata for list responses."""
+    return {
+        "count": count,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": (offset + count) < total,
+    }
 
 
 # Standard API fields accepted by Snipe-IT hardware PATCH/POST endpoints.

@@ -32,8 +32,8 @@ def manage_consumables(
     ],
     consumable_id: Annotated[int | None, "Consumable ID (required for get, update, delete)"] = None,
     consumable_data: Annotated[ConsumableData | None, "Consumable data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -116,23 +116,24 @@ def manage_consumables(
                 params["sort"] = sort or "id"
                 params["order"] = order or "asc"
                 
-                consumables = client.consumables.list(**params)
-                
+                api = _client.get_direct_api()
+                consumables, _total = api.list_page("consumables", **params)
+
                 consumables_list = [
                     {
-                        "id": consumable.id,
-                        "name": getattr(consumable, "name", None),
-                        "qty": getattr(consumable, "qty", None),
-                        "remaining": getattr(consumable, "remaining", None),
+                        "id": c.get("id"),
+                        "name": c.get("name"),
+                        "qty": c.get("qty"),
+                        "remaining": c.get("remaining"),
                     }
-                    for consumable in consumables
+                    for c in consumables
                 ]
-                
+
                 return {
                     "success": True,
                     "action": "list",
-                    "count": len(consumables_list),
-                    "consumables": consumables_list
+                    **_client.pagination_meta(len(consumables_list), _total, limit, offset),
+                    "consumables": consumables_list,
                 }
             
             elif action == "update":
@@ -202,8 +203,8 @@ def manage_accessories(
     ],
     accessory_id: Annotated[int | None, "Accessory ID (required for get, update, delete)"] = None,
     accessory_data: Annotated[AccessoryData | None, "Accessory data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -279,8 +280,8 @@ def manage_accessories(
             }
 
         elif action == "list":
-            accessories = api.list("accessories", limit=limit or 50, offset=offset or 0,
-                                   search=search, sort=sort, order=order)
+            accessories, _total = api.list_page("accessories", limit=limit, offset=offset,
+                                                search=search, sort=sort, order=order)
 
             accessories_list = [
                 {
@@ -297,8 +298,8 @@ def manage_accessories(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(accessories_list),
-                "accessories": accessories_list
+                **_client.pagination_meta(len(accessories_list), _total, limit, offset),
+                "accessories": accessories_list,
             }
 
         elif action == "update":
@@ -473,8 +474,8 @@ def manage_components(
     ],
     component_id: Annotated[int | None, "Component ID (required for get, update, delete)"] = None,
     component_data: Annotated[ComponentData | None, "Component data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -535,7 +536,7 @@ def manage_components(
             params["sort"] = sort or "id"
             params["order"] = order or "asc"
 
-            components = api.list("components", **params)
+            components, _total = api.list_page("components", **params)
 
             components_list = [
                 {
@@ -552,8 +553,8 @@ def manage_components(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(components_list),
-                "components": components_list
+                **_client.pagination_meta(len(components_list), _total, limit, offset),
+                "components": components_list,
             }
 
         elif action == "update":

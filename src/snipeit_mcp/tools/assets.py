@@ -48,8 +48,8 @@ def manage_assets(
             json_schema_extra={"type": "object", "additionalProperties": True},
         ),
     ] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return per page (for list action). Default 20 because each asset payload is large (~5KB with custom fields)."] = 20,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action). Valid fields: id, name, asset_tag, serial, model, model_number, last_checkout, category, manufacturer, notes, expected_checkin, order_number, companyName, location, image, status_label, assigned_to, created_at, purchase_date, purchase_cost"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -216,9 +216,8 @@ def manage_assets(
                 return {
                     "success": True,
                     "action": "list",
-                    "count": len(rows),
-                    "total": assets_result.get("total", len(rows)),
-                    "assets": rows
+                    **_client.pagination_meta(len(rows), assets_result.get("total", len(rows)), limit, offset),
+                    "assets": rows,
                 }
             
             elif action == "update":

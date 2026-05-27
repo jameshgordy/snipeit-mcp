@@ -32,8 +32,8 @@ def manage_users(
     ],
     user_id: Annotated[int | None, "User ID (required for get, update, delete, restore)"] = None,
     user_data: Annotated[UserData | None, "User data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -93,18 +93,17 @@ def manage_users(
             }
 
         elif action == "list":
-            params = {"limit": limit, "offset": offset}
-            if search:
-                params["search"] = search
-            # Default sort=id, order=asc for stable offset-based pagination
-            params["sort"] = sort or "id"
-            params["order"] = order or "asc"
+            extra = {}
             if username:
-                params["username"] = username
+                extra["username"] = username
             if email:
-                params["email"] = email
+                extra["email"] = email
 
-            users = api.list("users", **params)
+            users, _total = api.list_page(
+                "users", limit=limit, offset=offset,
+                search=search, sort=sort, order=order,
+                extra_params=extra or None,
+            )
 
             users_list = [
                 {
@@ -121,8 +120,8 @@ def manage_users(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(users_list),
-                "users": users_list
+                **_client.pagination_meta(len(users_list), _total, limit, offset),
+                "users": users_list,
             }
 
         elif action == "update":
@@ -286,8 +285,8 @@ def manage_companies(
     ],
     company_id: Annotated[int | None, "Company ID (required for get, update, delete)"] = None,
     company_data: Annotated[CompanyData | None, "Company data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -345,7 +344,7 @@ def manage_companies(
             params["sort"] = sort or "id"
             params["order"] = order or "asc"
 
-            companies = api.list("companies", **params)
+            companies, _total = api.list_page("companies", **params)
 
             companies_list = [
                 {
@@ -362,8 +361,8 @@ def manage_companies(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(companies_list),
-                "companies": companies_list
+                **_client.pagination_meta(len(companies_list), _total, limit, offset),
+                "companies": companies_list,
             }
 
         elif action == "update":
@@ -426,8 +425,8 @@ def manage_departments(
     ],
     department_id: Annotated[int | None, "Department ID (required for get, update, delete)"] = None,
     department_data: Annotated[DepartmentData | None, "Department data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -485,7 +484,7 @@ def manage_departments(
             params["sort"] = sort or "id"
             params["order"] = order or "asc"
 
-            departments = api.list("departments", **params)
+            departments, _total = api.list_page("departments", **params)
 
             departments_list = [
                 {
@@ -502,8 +501,8 @@ def manage_departments(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(departments_list),
-                "departments": departments_list
+                **_client.pagination_meta(len(departments_list), _total, limit, offset),
+                "departments": departments_list,
             }
 
         elif action == "update":
@@ -566,8 +565,8 @@ def manage_groups(
     ],
     group_id: Annotated[int | None, "Group ID (required for get, update, delete)"] = None,
     group_data: Annotated[GroupData | None, "Group data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
 ) -> dict[str, Any]:
     """Manage Snipe-IT permission groups with CRUD operations.
@@ -621,7 +620,7 @@ def manage_groups(
             if search:
                 params["search"] = search
 
-            groups = api.list("groups", **params)
+            groups, _total = api.list_page("groups", **params)
 
             groups_list = [
                 {
@@ -636,8 +635,8 @@ def manage_groups(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(groups_list),
-                "groups": groups_list
+                **_client.pagination_meta(len(groups_list), _total, limit, offset),
+                "groups": groups_list,
             }
 
         elif action == "update":

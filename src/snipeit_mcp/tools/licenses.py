@@ -33,8 +33,8 @@ def manage_licenses(
     ],
     license_id: Annotated[int | None, "License ID (required for get, update, delete)"] = None,
     license_data: Annotated[LicenseData | None, "License data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     sort: Annotated[str | None, "Field to sort by (for list action)"] = None,
     order: Annotated[Literal["asc", "desc"] | None, "Sort order (for list action)"] = None,
@@ -110,8 +110,8 @@ def manage_licenses(
             }
 
         elif action == "list":
-            licenses = api.list("licenses", limit=limit or 50, offset=offset or 0,
-                               search=search, sort=sort, order=order)
+            licenses, _total = api.list_page("licenses", limit=limit, offset=offset,
+                                             search=search, sort=sort, order=order)
 
             licenses_list = [
                 {
@@ -127,8 +127,8 @@ def manage_licenses(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(licenses_list),
-                "licenses": licenses_list
+                **_client.pagination_meta(len(licenses_list), _total, limit, offset),
+                "licenses": licenses_list,
             }
 
         elif action == "update":
@@ -234,7 +234,8 @@ def license_seats(
                 "action": "list",
                 "license_id": license_id,
                 "count": len(seats_list),
-                "seats": seats_list
+                "total": result.get("total", len(seats_list)),
+                "seats": seats_list,
             }
 
         elif action == "checkout":

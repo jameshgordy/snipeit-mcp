@@ -1215,7 +1215,7 @@ dependencies = [
 
 [[package]]
 name = "snipeit-mcp"
-version = "1.4.0"
+version = "1.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
@@ -1232,7 +1232,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastmcp", specifier = ">=2.0.0" },
+    { name = "fastmcp", specifier = ">=2.0.0,<3.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
     { name = "requests", specifier = ">=2.31.0" },

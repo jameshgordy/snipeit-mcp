@@ -33,8 +33,8 @@ def manage_fields(
     field_id: Annotated[int | None, "Field ID (required for get, update, delete, associate, disassociate)"] = None,
     field_data: Annotated[FieldData | None, "Field data (required for create, optional for update)"] = None,
     fieldset_id: Annotated[int | None, "Fieldset ID (required for associate/disassociate actions)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     search: Annotated[str | None, "Search query (for list action)"] = None,
     required: Annotated[bool | None, "Whether field is required in fieldset (for associate action)"] = False,
     order: Annotated[int | None, "Display order in fieldset (for associate action)"] = None,
@@ -92,7 +92,7 @@ def manage_fields(
             if search:
                 params["search"] = search
 
-            fields = api.list("fields", **params)
+            fields, _total = api.list_page("fields", **params)
 
             fields_list = [
                 {
@@ -109,8 +109,8 @@ def manage_fields(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(fields_list),
-                "fields": fields_list
+                **_client.pagination_meta(len(fields_list), _total, limit, offset),
+                "fields": fields_list,
             }
 
         elif action == "update":
@@ -205,8 +205,8 @@ def manage_fieldsets(
     ],
     fieldset_id: Annotated[int | None, "Fieldset ID (required for get, update, delete, fields, reorder)"] = None,
     fieldset_data: Annotated[FieldsetData | None, "Fieldset data (required for create, optional for update)"] = None,
-    limit: Annotated[int | None, "Number of results to return (for list action)"] = 50,
-    offset: Annotated[int | None, "Number of results to skip (for list action)"] = 0,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
     field_order: Annotated[list[int] | None, "Ordered list of field IDs (for reorder action)"] = None,
 ) -> dict[str, Any]:
     """Manage Snipe-IT fieldsets with CRUD operations.
@@ -260,7 +260,7 @@ def manage_fieldsets(
 
         elif action == "list":
             params = {"limit": limit, "offset": offset}
-            fieldsets = api.list("fieldsets", **params)
+            fieldsets, _total = api.list_page("fieldsets", **params)
 
             fieldsets_list = [
                 {
@@ -275,8 +275,8 @@ def manage_fieldsets(
             return {
                 "success": True,
                 "action": "list",
-                "count": len(fieldsets_list),
-                "fieldsets": fieldsets_list
+                **_client.pagination_meta(len(fieldsets_list), _total, limit, offset),
+                "fieldsets": fieldsets_list,
             }
 
         elif action == "update":
