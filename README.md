@@ -17,7 +17,7 @@ A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
 ### Inventory Tracking
 - **Consumables**: Complete management of consumable items
 - **Components**: Manage components with checkout/checkin to assets
-- **Accessories**: Track accessories with checkout/checkin to users
+- **Accessories**: Track accessories with checkout/checkin to users, assets, or locations
 
 ### Users & Organization
 - **Users**: Full user management including restore and current user endpoint
@@ -180,7 +180,7 @@ Add to your Cursor MCP settings with the same configuration format as above.
 | `manage_components` | CRUD operations for components |
 | `component_operations` | Checkout/checkin components to assets |
 | `manage_accessories` | CRUD operations for accessories |
-| `accessory_operations` | Checkout/checkin accessories to users |
+| `accessory_operations` | Checkout/checkin accessories to users, assets, or locations |
 
 ### User & Organization Tools (6)
 
@@ -385,6 +385,25 @@ All list endpoints return pagination metadata:
 ```
 
 ## Architecture
+
+```
+src/snipeit_mcp/
+├── __init__.py        # Public API re-exports
+├── __main__.py        # Entry point (snipeit-mcp script)
+├── mcp_server.py      # FastMCP instance + tool whitelist
+├── client.py          # SnipeIT API clients
+├── schemas.py         # Pydantic input schemas
+└── tools/             # 9 modules grouped by Snipe-IT domain
+    ├── assets.py
+    ├── inventory.py
+    ├── foundational.py
+    ├── licenses.py
+    ├── people.py
+    ├── custom_fields.py
+    ├── reports.py
+    ├── imports.py
+    └── system.py
+```
 
 Built with:
 - **[FastMCP](https://gofastmcp.com)**: Python framework for MCP servers
