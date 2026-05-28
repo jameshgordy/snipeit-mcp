@@ -213,8 +213,20 @@ class AccessoryData(BaseModel):
 
 
 class AccessoryCheckout(BaseModel):
-    """Model for accessory checkout operations."""
-    assigned_to: int | None = Field(None, description="User ID to checkout to")
+    """Model for accessory checkout operations.
+
+    Snipe-IT's accessory checkout endpoint accepts a polymorphic target
+    (``assigned_user`` | ``assigned_asset`` | ``assigned_location``) — exactly
+    one of which must be provided. We expose that as ``checkout_to_type`` +
+    ``assigned_to_id`` to match the shape of :class:`CheckoutData` for assets,
+    and translate to the wire field name in the tool layer.
+    """
+    checkout_to_type: Literal["user", "asset", "location"] = Field(
+        ...,
+        description="Type of entity to checkout the accessory to"
+    )
+    assigned_to_id: int = Field(..., description="ID of the user/asset/location to checkout to")
+    checkout_qty: int | None = Field(None, description="Quantity to checkout (server defaults to 1)")
     note: str | None = Field(None, description="Checkout notes")
 
 

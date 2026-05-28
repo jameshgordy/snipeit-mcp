@@ -182,26 +182,51 @@ class TestManageAccessories:
         assert result["success"] is True
 
 class TestAccessoryOperations:
-    def test_checkout(self, mock_direct_api):
+    def test_checkout_to_user(self, mock_direct_api):
         from snipeit_mcp import accessory_operations, AccessoryCheckout
         mock_direct_api._request.return_value = {"status": "success"}
         result = get_tool_fn(accessory_operations)(
             action="checkout", accessory_id=1,
-            checkout_data=AccessoryCheckout(assigned_to=5)
+            checkout_data=AccessoryCheckout(checkout_to_type="user", assigned_to_id=5)
         )
         assert result["success"] is True
+        # Verify wire payload uses polymorphic field name (regression guard for the
+        # bug where we were sending assigned_to and the API rejected it).
+        _, kwargs = mock_direct_api._request.call_args
+        assert kwargs["json"] == {"assigned_user": 5}
+
+    def test_checkout_to_asset(self, mock_direct_api):
+        from snipeit_mcp import accessory_operations, AccessoryCheckout
+        mock_direct_api._request.return_value = {"status": "success"}
+        result = get_tool_fn(accessory_operations)(
+            action="checkout", accessory_id=1,
+            checkout_data=AccessoryCheckout(checkout_to_type="asset", assigned_to_id=42)
+        )
+        assert result["success"] is True
+        _, kwargs = mock_direct_api._request.call_args
+        assert kwargs["json"] == {"assigned_asset": 42}
+
+    def test_checkout_to_location_with_qty_and_note(self, mock_direct_api):
+        from snipeit_mcp import accessory_operations, AccessoryCheckout
+        mock_direct_api._request.return_value = {"status": "success"}
+        result = get_tool_fn(accessory_operations)(
+            action="checkout", accessory_id=1,
+            checkout_data=AccessoryCheckout(
+                checkout_to_type="location", assigned_to_id=7,
+                checkout_qty=3, note="batch handout",
+            )
+        )
+        assert result["success"] is True
+        _, kwargs = mock_direct_api._request.call_args
+        assert kwargs["json"] == {
+            "assigned_location": 7,
+            "checkout_qty": 3,
+            "note": "batch handout",
+        }
 
     def test_checkout_missing_data(self, mock_direct_api):
         from snipeit_mcp import accessory_operations
         result = get_tool_fn(accessory_operations)(action="checkout", accessory_id=1)
-        assert result["success"] is False
-
-    def test_checkout_missing_assigned_to(self, mock_direct_api):
-        from snipeit_mcp import accessory_operations, AccessoryCheckout
-        result = get_tool_fn(accessory_operations)(
-            action="checkout", accessory_id=1,
-            checkout_data=AccessoryCheckout()
-        )
         assert result["success"] is False
 
     def test_checkin(self, mock_direct_api):

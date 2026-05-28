@@ -368,11 +368,13 @@ def accessory_operations(
 ) -> dict[str, Any]:
     """Perform checkout/checkin operations on accessories.
 
-    Accessories can be checked out to users. Each checkout decrements the available
-    quantity, and checkin increments it back.
+    Accessories can be checked out to a user, asset, or location. Each
+    checkout decrements the available quantity, and checkin increments it
+    back.
 
     Operations:
-    - checkout: Checkout an accessory to a user (requires checkout_data with assigned_to)
+    - checkout: Checkout an accessory to a user/asset/location (requires
+      checkout_data with checkout_to_type and assigned_to_id)
     - checkin: Checkin an accessory (requires checkout_id from the checkout record)
     - list_checkouts: List all users who have this accessory checked out
 
@@ -386,20 +388,24 @@ def accessory_operations(
             if not checkout_data:
                 return {"success": False, "error": "checkout_data is required for checkout action"}
 
-            if not checkout_data.assigned_to:
-                return {
-                    "success": False,
-                    "error": "assigned_to (user ID) is required for checkout"
-                }
+            target_field = {
+                "user": "assigned_user",
+                "asset": "assigned_asset",
+                "location": "assigned_location",
+            }[checkout_data.checkout_to_type]
+            checkout_payload: dict[str, Any] = {target_field: checkout_data.assigned_to_id}
+            if checkout_data.checkout_qty is not None:
+                checkout_payload["checkout_qty"] = checkout_data.checkout_qty
+            if checkout_data.note is not None:
+                checkout_payload["note"] = checkout_data.note
 
-            checkout_payload = {k: v for k, v in checkout_data.model_dump().items() if v is not None}
             result = api._request("POST", f"accessories/{accessory_id}/checkout", json=checkout_payload)
 
             return {
                 "success": True,
                 "action": "checkout",
                 "accessory_id": accessory_id,
-                "message": f"Accessory checked out to user {checkout_data.assigned_to}",
+                "message": f"Accessory checked out to {checkout_data.checkout_to_type} {checkout_data.assigned_to_id}",
                 "result": result
             }
 
