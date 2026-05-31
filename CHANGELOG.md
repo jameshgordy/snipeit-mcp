@@ -5,6 +5,16 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Upgraded the FastMCP dependency to 3.x (`fastmcp>=3.0.0,<4.0.0`); FastMCP 2.x
+  is no longer supported. The `SNIPEIT_ALLOWED_TOOLS` whitelist was reworked to
+  use FastMCP 3's tool visibility controls (`enable`/`disable`) in place of the
+  removed private tool registry — disabled tools stay registered but are hidden
+  from clients — and behaves the same as before from a user's perspective. The
+  public tool set, input schemas, and stdio transport are unchanged.
+
 ## [1.2.0] - 2025-01-21
 
 ### Added
