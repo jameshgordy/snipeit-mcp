@@ -7,7 +7,7 @@ license = "MIT"
 requires-python = ">=3.11"
 keywords = ["mcp", "snipeit", "inventory", "asset-management", "ai"]
 dependencies = [
-    "fastmcp>=2.0.0,<3.0.0",
+    "fastmcp>=3.0.0,<4.0.0",
     "requests>=2.31.0",
     "snipeit-api @ git+https://github.com/lfctech/snipeit-python-api@main",
 ]

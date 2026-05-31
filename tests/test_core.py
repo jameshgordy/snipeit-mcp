@@ -39,34 +39,33 @@ class TestToolWhitelist:
     flat-layout reload trick no longer works here.
     """
 
-    def test_no_whitelist_all_tools(self):
+    async def test_no_whitelist_all_tools(self):
         from snipeit_mcp.mcp_server import apply_tool_whitelist, mcp
         apply_tool_whitelist("")
-        assert len(mcp._tool_manager._tools) >= 38
+        assert len(await mcp.list_tools()) >= 38
 
-    def test_whitelist_limits_tools(self):
+    async def test_whitelist_limits_tools(self):
         from snipeit_mcp.mcp_server import apply_tool_whitelist, mcp
         try:
             apply_tool_whitelist("manage_assets,system_info")
-            tools = mcp._tool_manager._tools
-            assert len(tools) == 2
-            assert "manage_assets" in tools
-            assert "system_info" in tools
+            names = {t.name for t in await mcp.list_tools()}
+            assert names == {"manage_assets", "system_info"}
         finally:
             apply_tool_whitelist("")
 
-    def test_whitelist_nonexistent_tools(self):
+    async def test_whitelist_nonexistent_tools(self):
         from snipeit_mcp.mcp_server import apply_tool_whitelist, mcp
         try:
             apply_tool_whitelist("nonexistent_tool")
-            assert len(mcp._tool_manager._tools) == 0
+            assert len(await mcp.list_tools()) == 0
         finally:
             apply_tool_whitelist("")
 
-    def test_whitelist_whitespace_handling(self):
+    async def test_whitelist_whitespace_handling(self):
         from snipeit_mcp.mcp_server import apply_tool_whitelist, mcp
         try:
             apply_tool_whitelist(" manage_assets , system_info ")
-            assert len(mcp._tool_manager._tools) == 2
+            names = {t.name for t in await mcp.list_tools()}
+            assert names == {"manage_assets", "system_info"}
         finally:
             apply_tool_whitelist("")

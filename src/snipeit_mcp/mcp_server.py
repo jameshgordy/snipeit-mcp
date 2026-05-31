@@ -26,10 +26,11 @@ from . import tools  # noqa: E402, F401
 # ============================================================================
 # Tool Whitelist Configuration
 # ============================================================================
-# Snapshot the full tool set immediately after all `tools/*.py` modules have been
-# imported, so the whitelist can be re-applied repeatedly (e.g. from tests)
-# without losing the tools filtered out by an earlier call.
-_ALL_TOOLS: dict = dict(mcp._tool_manager._tools)
+# FastMCP 3.x exposes no public synchronous tool registry, so the whitelist is
+# implemented with the server's enable/disable visibility controls. Disabled
+# tools stay registered but are hidden from clients — they no longer appear in
+# ``list_tools`` and cannot be called — which matches the previous behavior of
+# dropping them from the tool set, and is freely re-applicable (e.g. from tests).
 
 
 def apply_tool_whitelist(allowed_csv: str | None = None) -> None:
@@ -43,16 +44,16 @@ def apply_tool_whitelist(allowed_csv: str | None = None) -> None:
 
     if allowed_csv:
         allowed = {t.strip() for t in allowed_csv.split(",") if t.strip()}
-        mcp._tool_manager._tools = {
-            name: tool for name, tool in _ALL_TOOLS.items() if name in allowed
-        }
+        # Enable only the whitelisted tools, disabling every other tool.
+        mcp.enable(names=allowed, components={"tool"}, only=True)
         logger.info(
-            f"Tool whitelist active: {len(mcp._tool_manager._tools)}/{len(_ALL_TOOLS)} "
-            f"tools enabled. Allowed: {sorted(allowed)}"
+            f"Tool whitelist active: only {sorted(allowed)} enabled; "
+            "all other tools disabled."
         )
     else:
-        mcp._tool_manager._tools = dict(_ALL_TOOLS)
-        logger.info(f"All {len(mcp._tool_manager._tools)} tools enabled (no whitelist configured)")
+        # Re-enable the full tool set.
+        mcp.enable(components={"tool"})
+        logger.info("All tools enabled (no whitelist configured)")
 
 
 apply_tool_whitelist()

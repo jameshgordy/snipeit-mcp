@@ -8,10 +8,11 @@ def get_tool_fn(tool):
     return tool.fn if hasattr(tool, "fn") else tool
 
 class TestManageAssets:
-    def test_manage_assets_schema_marks_object_inputs_as_objects(self):
+    async def test_manage_assets_schema_marks_object_inputs_as_objects(self):
         import snipeit_mcp as server
 
-        params = server.mcp._tool_manager._tools["manage_assets"].parameters["properties"]
+        tool = await server.mcp.get_tool("manage_assets")
+        params = tool.parameters["properties"]
 
         asset_data_schema = params["asset_data"]
         extra_fields_schema = params["extra_fields"]
@@ -113,7 +114,7 @@ class TestManageAssets:
     async def test_tool_run_accepts_dict_asset_data(self, mock_client, mock_direct_api):
         import snipeit_mcp as server
 
-        tool = server.mcp._tool_manager._tools["manage_assets"]
+        tool = await server.mcp.get_tool("manage_assets")
         mock_direct_api._request.return_value = {"status": "success", "payload": {"id": 1, "name": "Test Laptop"}}
 
         result = await tool.run({
@@ -133,7 +134,7 @@ class TestManageAssets:
     async def test_tool_run_accepts_dict_extra_fields(self, mock_client, mock_direct_api):
         import snipeit_mcp as server
 
-        tool = server.mcp._tool_manager._tools["manage_assets"]
+        tool = await server.mcp.get_tool("manage_assets")
         mock_direct_api._request.side_effect = [
             {"id": 1, "custom_fields": {"Hostname": {"field": "_snipeit_hostname_2"}}},
             {"status": "success", "payload": {"id": 1, "name": "Updated"}},
