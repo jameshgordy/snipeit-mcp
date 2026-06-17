@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/jameshgordy-snipeit-mcp-badge.png)](https://mseep.ai/app/jameshgordy-snipeit-mcp)
+
 # Snipe-IT MCP Server
 
 A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for managing [Snipe-IT](https://snipeitapp.com/) inventory systems. This server enables AI assistants to perform full CRUD operations across your entire Snipe-IT instance with **39 tools** covering all major API endpoints.
