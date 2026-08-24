@@ -42,10 +42,12 @@ from .schemas import (
     FieldsetData,
     GroupData,
     ImportData,
+    KitData,
     LicenseData,
     LicenseSeatCheckout,
     LocationData,
     MaintenanceData,
+    MaintenanceUpdateData,
     ManufacturerData,
     StatusLabelData,
     SupplierData,
@@ -58,6 +60,7 @@ from .tools.assets import (
     asset_maintenance,
     asset_operations,
     asset_requests,
+    bulk_asset_operations,
     manage_assets,
 )
 from .tools.custom_fields import manage_fields, manage_fieldsets
@@ -72,6 +75,7 @@ from .tools.foundational import (
     model_files,
 )
 from .tools.imports import manage_imports
+from .tools.kits import manage_kits
 from .tools.inventory import (
     accessory_operations,
     component_operations,

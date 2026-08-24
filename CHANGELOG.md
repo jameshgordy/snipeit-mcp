@@ -5,6 +5,35 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-08-24
+
+### Added
+- **Predefined Kits** (`manage_kits`): CRUD for kits plus kit content
+  management — attach/detach/re-quantity models, licenses, accessories, and
+  consumables. (Kit checkout has no API endpoint in Snipe-IT; it remains
+  UI-only.)
+- **Bulk Asset Operations** (`bulk_asset_operations`): bulk edit
+  (`PATCH /hardware/bulk`) and bulk audit (`POST /hardware/audit/bulk`) across
+  many assets at once — both endpoints added in Snipe-IT v8.7.
+- **Maintenance lifecycle** (`asset_maintenance`): new `list`, `get`, `update`,
+  `delete`, and `complete` actions alongside `create` (complete requires
+  Snipe-IT v8.7+).
+- **Checkout request queries** (`asset_requests`): new `list` (own pending
+  requests) and `requestable` (assets the user may request) actions.
+- List responses now include `total_pages` and `current_page` in their
+  pagination metadata.
+
+### Changed
+- `asset_maintenance` create now uses the `/maintenances` API directly and
+  sends the completion date under both `completion_date` (pre-v8.7) and
+  `expected_completion_date` (v8.7 renamed the field), so it works on either
+  side of the rename.
+
+### Fixed
+- `asset_requests` was calling `hardware/{id}/request` endpoints that do not
+  exist in Snipe-IT v8; it now uses the correct `account/request/{id}` and
+  `account/request/{id}/cancel` routes.
+
 ## [1.7.1] - 2026-08-24
 
 ### Fixed
@@ -158,6 +187,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UV package manager support
 - Stdio transport for MCP communication
 
+[1.8.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.8
 [1.7.1]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.7.1
 [1.7.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.7
 [1.2.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/v1.2.0

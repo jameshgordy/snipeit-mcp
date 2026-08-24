@@ -167,6 +167,8 @@ def pagination_meta(count: int, total: int, limit: int, offset: int) -> dict:
         "limit": limit,
         "offset": offset,
         "has_more": (offset + count) < total,
+        "total_pages": -(-total // limit) if limit > 0 else 1,
+        "current_page": (offset // limit) + 1 if limit > 0 else 1,
     }
 
 
