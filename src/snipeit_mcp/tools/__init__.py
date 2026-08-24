@@ -13,4 +13,5 @@ from . import people  # noqa: F401
 from . import custom_fields  # noqa: F401
 from . import reports  # noqa: F401
 from . import imports  # noqa: F401
+from . import kits  # noqa: F401
 from . import system  # noqa: F401

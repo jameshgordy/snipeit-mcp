@@ -14,7 +14,7 @@ from snipeit.exceptions import (
 from .. import client as _client
 from ..client import HARDWARE_STANDARD_FIELDS
 from ..mcp_server import mcp
-from ..schemas import AssetData, CheckoutData, CheckinData, AuditData, MaintenanceData, AssetRequestData
+from ..schemas import AssetData, CheckoutData, CheckinData, AuditData, MaintenanceData, MaintenanceUpdateData, AssetRequestData
 
 logger = logging.getLogger(__name__)
 
@@ -595,64 +595,145 @@ def asset_labels(
         return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
 
+def _maintenance_payload(data: MaintenanceData | MaintenanceUpdateData) -> dict[str, Any]:
+    """Build a /maintenances payload from set fields, mapping schema names to API names.
+
+    ``completion_date`` is sent under both its legacy name and the
+    ``expected_completion_date`` name it was renamed to in Snipe-IT v8.7, so the
+    same payload works on either side of the rename (unknown keys are ignored).
+    """
+    payload: dict[str, Any] = {}
+    if data.asset_improvement is not None:
+        payload["asset_maintenance_type"] = data.asset_improvement
+    if data.supplier_id is not None:
+        payload["supplier_id"] = data.supplier_id
+    if data.title is not None:
+        payload["title"] = data.title
+    if data.cost is not None:
+        payload["cost"] = data.cost
+    if data.start_date:
+        payload["start_date"] = data.start_date
+    if data.completion_date:
+        payload["completion_date"] = data.completion_date
+        payload["expected_completion_date"] = data.completion_date
+    if getattr(data, "is_warranty", None) is not None:
+        payload["is_warranty"] = data.is_warranty
+    if data.notes:
+        payload["notes"] = data.notes
+    return payload
+
+
 @mcp.tool(
     annotations={
         "readOnlyHint": False,
-        "destructiveHint": False,
+        "destructiveHint": True,
         "idempotentHint": False,
     }
 )
 def asset_maintenance(
     action: Annotated[
-        Literal["create"],
-        "The maintenance operation to perform (currently only create is supported)"
+        Literal["create", "list", "get", "update", "delete", "complete"],
+        "The maintenance operation to perform"
     ],
-    asset_id: Annotated[int, "Asset ID"],
-    maintenance_data: Annotated[MaintenanceData, "Maintenance record data (required for create action)"],
+    asset_id: Annotated[int | None, "Asset ID (required for create; optional filter for list)"] = None,
+    maintenance_id: Annotated[int | None, "Maintenance record ID (required for get, update, delete, complete)"] = None,
+    maintenance_data: Annotated[MaintenanceData | None, "Maintenance record data (required for create action)"] = None,
+    update_data: Annotated[MaintenanceUpdateData | None, "Fields to change (required for update action)"] = None,
+    note: Annotated[str | None, "Completion note (for complete action)"] = None,
+    limit: Annotated[int, "Number of results to return (for list action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for list action)"] = 0,
+    search: Annotated[str | None, "Search query (for list action)"] = None,
+    completed: Annotated[bool | None, "Filter by completion state (for list action)"] = None,
 ) -> dict[str, Any]:
     """Manage maintenance records for assets.
-    
-    Currently supports:
-    - create: Create a new maintenance record for an asset
-    
+
+    Operations:
+    - create: Create a maintenance record for an asset (requires asset_id and maintenance_data)
+    - list: List maintenance records, optionally filtered by asset_id, search, or completed
+    - get: Get a single maintenance record by maintenance_id
+    - update: Update a maintenance record (requires maintenance_id and update_data)
+    - delete: Delete a maintenance record (requires maintenance_id)
+    - complete: Mark a maintenance record complete (requires maintenance_id; Snipe-IT v8.7+)
+
     Returns:
         dict: Result of the operation including success status and data
     """
     try:
-        client = _client.get_snipeit_client()
-        
-        with client:
-            if action == "create":
-                # Build maintenance payload
-                maintenance_kwargs = {
-                    "asset_id": asset_id,
-                    "asset_improvement": maintenance_data.asset_improvement,
-                    "supplier_id": maintenance_data.supplier_id,
-                    "title": maintenance_data.title,
-                }
-                
-                if maintenance_data.cost is not None:
-                    maintenance_kwargs["cost"] = maintenance_data.cost
-                if maintenance_data.start_date:
-                    maintenance_kwargs["start_date"] = maintenance_data.start_date
-                if maintenance_data.completion_date:
-                    maintenance_kwargs["completion_date"] = maintenance_data.completion_date
-                if maintenance_data.notes:
-                    maintenance_kwargs["notes"] = maintenance_data.notes
-                
-                result = client.assets.create_maintenance(**maintenance_kwargs)
-                
-                return {
-                    "success": True,
-                    "action": "create",
-                    "asset_id": asset_id,
-                    "message": "Maintenance record created successfully",
-                    "maintenance": result
-                }
-    
+        api = _client.get_direct_api()
+
+        if action == "create":
+            if not asset_id:
+                return {"success": False, "error": "asset_id is required for create action"}
+            if not maintenance_data:
+                return {"success": False, "error": "maintenance_data is required for create action"}
+
+            payload = {"asset_id": asset_id, **_maintenance_payload(maintenance_data)}
+            result = api._request("POST", "maintenances", json=payload)
+            return {
+                "success": True,
+                "action": "create",
+                "asset_id": asset_id,
+                "message": "Maintenance record created successfully",
+                "maintenance": result
+            }
+
+        elif action == "list":
+            extra: dict[str, Any] = {}
+            if asset_id:
+                extra["asset_id"] = asset_id
+            if completed is not None:
+                extra["completed"] = "true" if completed else "false"
+            records, _total = api.list_page("maintenances", limit=limit, offset=offset,
+                                            search=search, extra_params=extra)
+            return {
+                "success": True,
+                "action": "list",
+                **_client.pagination_meta(len(records), _total, limit, offset),
+                "maintenances": records,
+            }
+
+        elif action == "get":
+            if not maintenance_id:
+                return {"success": False, "error": "maintenance_id is required for get action"}
+            record = api.get("maintenances", maintenance_id)
+            return {"success": True, "action": "get", "maintenance": record}
+
+        elif action == "update":
+            if not maintenance_id:
+                return {"success": False, "error": "maintenance_id is required for update action"}
+            if not update_data:
+                return {"success": False, "error": "update_data is required for update action"}
+            payload = _maintenance_payload(update_data)
+            if not payload:
+                return {"success": False, "error": "update_data must contain at least one field to change"}
+            result = api.update("maintenances", maintenance_id, payload)
+            return {"success": True, "action": "update", "maintenance_id": maintenance_id, "maintenance": result}
+
+        elif action == "delete":
+            if not maintenance_id:
+                return {"success": False, "error": "maintenance_id is required for delete action"}
+            api.delete("maintenances", maintenance_id)
+            return {"success": True, "action": "delete", "maintenance_id": maintenance_id,
+                    "message": f"Maintenance record {maintenance_id} deleted successfully"}
+
+        elif action == "complete":
+            if not maintenance_id:
+                return {"success": False, "error": "maintenance_id is required for complete action"}
+            payload = {"note": note} if note else {}
+            result = api._request("POST", f"maintenances/{maintenance_id}/complete",
+                                  json=payload if payload else None)
+            return {"success": True, "action": "complete", "maintenance_id": maintenance_id,
+                    "result": result}
+
     except SnipeITNotFoundError as e:
-        logger.error(f"Asset not found: {e}")
-        return {"success": False, "error": f"Asset not found: {str(e)}"}
+        logger.error(f"Resource not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
     except SnipeITException as e:
         logger.error(f"Snipe-IT error: {e}")
         return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
@@ -710,24 +791,28 @@ def asset_licenses(
 )
 def asset_requests(
     action: Annotated[
-        Literal["request", "cancel"],
+        Literal["request", "cancel", "list", "requestable"],
         "The request action to perform"
     ],
-    asset_id: Annotated[int, "Asset ID (must be a requestable asset)"],
+    asset_id: Annotated[int | None, "Asset ID (required for request and cancel; must be a requestable asset)"] = None,
     request_data: Annotated[AssetRequestData | None, "Request details (for request action)"] = None,
+    limit: Annotated[int, "Number of results to return (for requestable action)"] = 50,
+    offset: Annotated[int, "Number of results to skip (for requestable action)"] = 0,
+    search: Annotated[str | None, "Search query (for requestable action)"] = None,
 ) -> dict[str, Any]:
-    """Manage asset checkout requests.
+    """Manage asset checkout requests (as the authenticated user).
 
     Allows users to request checkout of requestable assets. Assets must have
     the 'requestable' flag set (either on the asset or its model).
 
     Operations:
-    - request: Submit a request to checkout an asset
-    - cancel: Cancel a pending request
+    - request: Submit a request to checkout an asset (requires asset_id)
+    - cancel: Cancel a pending request (requires asset_id)
+    - list: List the authenticated user's own pending checkout requests
+    - requestable: List assets the authenticated user may request
 
-    Note: Viewing the request queue and approving/denying requests is only
-    available through the web UI - there are no API endpoints for these
-    administrative functions.
+    Note: Approving/denying requests is only available through the web UI -
+    there are no API endpoints for these administrative functions.
 
     Returns:
         dict: Result of the operation including success status
@@ -736,6 +821,8 @@ def asset_requests(
         api = _client.get_direct_api()
 
         if action == "request":
+            if not asset_id:
+                return {"success": False, "error": "asset_id is required for request action"}
             payload = {}
             if request_data:
                 if request_data.expected_checkout:
@@ -743,7 +830,7 @@ def asset_requests(
                 if request_data.note:
                     payload["note"] = request_data.note
 
-            result = api._request("POST", f"hardware/{asset_id}/request", json=payload if payload else None)
+            result = api._request("POST", f"account/request/{asset_id}", json=payload if payload else None)
 
             return {
                 "success": True,
@@ -754,7 +841,9 @@ def asset_requests(
             }
 
         elif action == "cancel":
-            result = api._request("POST", f"hardware/{asset_id}/request/cancel")
+            if not asset_id:
+                return {"success": False, "error": "asset_id is required for cancel action"}
+            result = api._request("POST", f"account/request/{asset_id}/cancel")
 
             return {
                 "success": True,
@@ -762,6 +851,29 @@ def asset_requests(
                 "asset_id": asset_id,
                 "message": "Checkout request cancelled",
                 "result": result
+            }
+
+        elif action == "list":
+            result = api._request("GET", "account/requests")
+            rows = result.get("rows", []) if isinstance(result, dict) else result
+            return {
+                "success": True,
+                "action": "list",
+                "count": len(rows),
+                "requests": rows,
+            }
+
+        elif action == "requestable":
+            params: dict[str, Any] = {"limit": limit, "offset": offset}
+            if search:
+                params["search"] = search
+            result = api._request("GET", "account/requestable/hardware", params=params)
+            rows = result.get("rows", [])
+            return {
+                "success": True,
+                "action": "requestable",
+                **_client.pagination_meta(len(rows), result.get("total", len(rows)), limit, offset),
+                "assets": rows,
             }
 
     except SnipeITNotFoundError as e:
@@ -778,6 +890,99 @@ def asset_requests(
         return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
     except Exception as e:
         logger.error(f"Unexpected error in asset_requests: {e}", exc_info=True)
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    }
+)
+def bulk_asset_operations(
+    action: Annotated[
+        Literal["edit", "audit"],
+        "The bulk operation to perform"
+    ],
+    asset_ids: Annotated[list[int], "IDs of the assets to operate on"],
+    fields: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description="Fields to set on every asset (for edit action): status_id, model_id, company_id, location_id/rtd_location_id, name, custom fields (_snipeit_*), etc.",
+            json_schema_extra={"type": "object", "additionalProperties": True},
+        ),
+    ] = None,
+    note: Annotated[str | None, "Audit note (for audit action)"] = None,
+    location_id: Annotated[int | None, "Location observed during audit (for audit action)"] = None,
+    update_location: Annotated[bool, "Also move the assets to location_id, not just record it in the audit (for audit action)"] = False,
+    next_audit_date: Annotated[str | None, "Next audit date, YYYY-MM-DD (for audit action)"] = None,
+) -> dict[str, Any]:
+    """Perform bulk operations on multiple assets at once (Snipe-IT v8.7+).
+
+    Operations:
+    - edit: Apply the same field changes to every asset in asset_ids
+      (PATCH /hardware/bulk; requires fields)
+    - audit: Mark every asset in asset_ids as audited, optionally recording
+      a note, location, and next audit date (POST /hardware/audit/bulk)
+
+    Snipe-IT applies per-asset permission checks, so one failing asset does
+    not block the rest of the batch; check the returned payload for per-asset
+    results.
+
+    Returns:
+        dict: Result of the operation including success status and the API response
+    """
+    try:
+        if not asset_ids:
+            return {"success": False, "error": "asset_ids must contain at least one asset ID"}
+
+        api = _client.get_direct_api()
+
+        if action == "edit":
+            if not fields:
+                return {"success": False, "error": "fields is required for edit action"}
+            payload = {"ids": asset_ids, **fields}
+            result = api._request("PATCH", "hardware/bulk", json=payload)
+            return {
+                "success": True,
+                "action": "edit",
+                "asset_ids": asset_ids,
+                "result": result,
+            }
+
+        elif action == "audit":
+            payload: dict[str, Any] = {"ids": asset_ids}
+            if note:
+                payload["note"] = note
+            if location_id is not None:
+                payload["location_id"] = location_id
+                if update_location:
+                    payload["update_location"] = "1"
+            if next_audit_date:
+                payload["next_audit_date"] = next_audit_date
+            result = api._request("POST", "hardware/audit/bulk", json=payload)
+            return {
+                "success": True,
+                "action": "audit",
+                "asset_ids": asset_ids,
+                "result": result,
+            }
+
+    except SnipeITNotFoundError as e:
+        logger.error(f"Resource not found: {e}")
+        return {"success": False, "error": f"Not found: {str(e)}"}
+    except SnipeITAuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except SnipeITValidationError as e:
+        logger.error(f"Validation error: {e}")
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+    except SnipeITException as e:
+        logger.error(f"Snipe-IT error: {e}")
+        return {"success": False, "error": f"Snipe-IT error: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error in bulk_asset_operations: {e}", exc_info=True)
         return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
 

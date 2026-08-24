@@ -1,6 +1,6 @@
 # Snipe-IT MCP Server
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for managing [Snipe-IT](https://snipeitapp.com/) inventory systems. This server enables AI assistants to perform full CRUD operations across your entire Snipe-IT instance with **39 tools** covering all major API endpoints.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for managing [Snipe-IT](https://snipeitapp.com/) inventory systems. This server enables AI assistants to perform full CRUD operations across your entire Snipe-IT instance with **40 tools** covering all major API endpoints.
 
 ## Features
 
@@ -381,19 +381,20 @@ Then in the Inspector UI:
 > common misconfiguration; those credentials belong only in the server's
 > `.env`, not in any MCP client.
 
-## Available Tools (39 Total)
+## Available Tools (40 Total)
 
-### Asset Tools (7)
+### Asset Tools (8)
 
 | Tool | Description |
 |------|-------------|
 | `manage_assets` | CRUD operations with bytag/byserial lookup and advanced filtering |
 | `asset_operations` | State operations (checkout, checkin, audit, restore) |
+| `bulk_asset_operations` | Bulk edit and bulk audit across many assets at once (Snipe-IT v8.7+) |
 | `asset_files` | File attachments (upload, list, download, delete) |
 | `asset_labels` | Generate printable PDF labels |
-| `asset_maintenance` | Create maintenance records |
+| `asset_maintenance` | Full maintenance lifecycle (create, list, get, update, delete, complete) |
 | `asset_licenses` | View licenses assigned to an asset |
-| `asset_requests` | Submit/cancel checkout requests for requestable assets |
+| `asset_requests` | Submit/cancel checkout requests, list own requests and requestable assets |
 
 ### Inventory Tools (5)
 
@@ -404,6 +405,12 @@ Then in the Inspector UI:
 | `component_operations` | Checkout/checkin components to assets |
 | `manage_accessories` | CRUD operations for accessories |
 | `accessory_operations` | Checkout/checkin accessories to users, assets, or locations |
+
+### Kit Tools (1)
+
+| Tool | Description |
+|------|-------------|
+| `manage_kits` | CRUD for predefined kits plus kit content management (models, licenses, accessories, consumables) |
 
 ### User & Organization Tools (6)
 
@@ -616,7 +623,7 @@ src/snipeit_mcp/
 ├── mcp_server.py      # FastMCP instance + tool whitelist
 ├── client.py          # SnipeIT API clients
 ├── schemas.py         # Pydantic input schemas
-└── tools/             # 9 modules grouped by Snipe-IT domain
+└── tools/             # 10 modules grouped by Snipe-IT domain
     ├── assets.py
     ├── inventory.py
     ├── foundational.py

@@ -342,3 +342,20 @@ class AssetRequestData(BaseModel):
         None, description="Note explaining the request"
     )
 
+
+class KitData(BaseModel):
+    """Model for predefined kit data used in create/update operations."""
+    name: str | None = Field(None, description="Kit name")
+
+
+class MaintenanceUpdateData(BaseModel):
+    """Model for partial updates to maintenance records (all fields optional)."""
+    asset_improvement: str | None = Field(None, description="Type of maintenance/improvement")
+    supplier_id: int | None = Field(None, description="Supplier ID")
+    title: str | None = Field(None, description="Maintenance title")
+    cost: float | None = Field(None, description="Maintenance cost")
+    start_date: str | None = Field(None, description="Start date (YYYY-MM-DD)")
+    completion_date: str | None = Field(None, description="Completion date (YYYY-MM-DD)")
+    is_warranty: bool | None = Field(None, description="Whether covered under warranty")
+    notes: str | None = Field(None, description="Maintenance notes")
+
