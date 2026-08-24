@@ -90,3 +90,37 @@ class TestClientErrors:
         mock_client.assets.get.side_effect = SnipeITNotFoundError("Asset 999 not found")
         result = get_tool_fn(asset_operations)(action="checkin", asset_id=999)
         assert result["success"] is False
+
+
+class TestDirectApiRequest:
+    def test_error_status_payload_raises(self):
+        # Snipe-IT returns HTTP 200 with {"status": "error"} for many
+        # failures; _request must raise instead of returning it as success.
+        from unittest.mock import MagicMock, patch
+
+        import pytest
+
+        from snipeit_mcp.client import SnipeITDirectAPI, SnipeITException
+
+        api = SnipeITDirectAPI()
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "status": "error", "messages": "Statuslabel not found", "payload": None
+        }
+        with patch("snipeit_mcp.client.requests.request", return_value=response):
+            with pytest.raises(SnipeITException, match="Statuslabel not found"):
+                api._request("GET", "statuslabels/assets")
+
+    def test_success_status_payload_passes_through(self):
+        from unittest.mock import MagicMock, patch
+
+        from snipeit_mcp.client import SnipeITDirectAPI
+
+        api = SnipeITDirectAPI()
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"status": "success", "payload": {"id": 1}}
+        with patch("snipeit_mcp.client.requests.request", return_value=response):
+            result = api._request("POST", "hardware", json={})
+        assert result == {"status": "success", "payload": {"id": 1}}

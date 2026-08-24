@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from clients — and behaves the same as before from a user's perspective. The
   public tool set, input schemas, and stdio transport are unchanged.
 
+### Fixed
+- `status_summary` no longer calls the removed `statuslabels/assets` endpoint
+  (gone in Snipe-IT v8); it now aggregates `assets_count` from the paginated
+  `statuslabels` listing and returns `summary`, `status_labels`, and
+  `total_assets`. Fixes #18.
+- Direct API requests now raise an error when Snipe-IT returns HTTP 200 with a
+  `{"status": "error", ...}` payload, so wrapped API failures are no longer
+  reported as `"success": true`.
+
 ## [1.2.0] - 2025-01-21
 
 ### Added

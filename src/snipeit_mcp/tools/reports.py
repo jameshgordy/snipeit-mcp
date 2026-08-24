@@ -159,11 +159,29 @@ def status_summary() -> dict[str, Any]:
     """
     try:
         api = _client.get_direct_api()
-        result = api._request("GET", "statuslabels/assets")
+
+        # Aggregate assets_count from the statuslabels listing; the old
+        # statuslabels/assets endpoint no longer exists in Snipe-IT v8.
+        summary: dict[str, int] = {}
+        offset = 0
+        limit = 500
+        while True:
+            result = api._request(
+                "GET", "statuslabels", params={"limit": limit, "offset": offset}
+            )
+            rows = result.get("rows", []) if isinstance(result, dict) else []
+            for row in rows:
+                summary[str(row.get("name", "?"))] = int(row.get("assets_count") or 0)
+            total = result.get("total", len(rows)) if isinstance(result, dict) else 0
+            offset += len(rows)
+            if not rows or offset >= total:
+                break
 
         return {
             "success": True,
-            "summary": result
+            "summary": summary,
+            "status_labels": len(summary),
+            "total_assets": sum(summary.values()),
         }
 
     except SnipeITNotFoundError as e:

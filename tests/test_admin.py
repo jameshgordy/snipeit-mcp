@@ -166,10 +166,42 @@ class TestActivityReports:
 class TestStatusSummary:
     def test_basic(self, mock_direct_api):
         from snipeit_mcp import status_summary
-        mock_direct_api._request.return_value = {"Deployed": 50, "Pending": 10}
+        mock_direct_api._request.return_value = {
+            "total": 2,
+            "rows": [
+                {"name": "Ready to Deploy", "assets_count": 50},
+                {"name": "Pending", "assets_count": 10},
+            ],
+        }
         result = get_tool_fn(status_summary)()
         assert result["success"] is True
-        mock_direct_api._request.assert_called_with("GET", "statuslabels/assets")
+        assert result["summary"] == {"Ready to Deploy": 50, "Pending": 10}
+        assert result["status_labels"] == 2
+        assert result["total_assets"] == 60
+        mock_direct_api._request.assert_called_with(
+            "GET", "statuslabels", params={"limit": 500, "offset": 0}
+        )
+
+    def test_paginates_past_limit(self, mock_direct_api):
+        from snipeit_mcp import status_summary
+        mock_direct_api._request.side_effect = [
+            {"total": 501, "rows": [{"name": f"Status {i}", "assets_count": 1} for i in range(500)]},
+            {"total": 501, "rows": [{"name": "Status 500", "assets_count": 1}]},
+        ]
+        result = get_tool_fn(status_summary)()
+        assert result["success"] is True
+        assert result["status_labels"] == 501
+        assert result["total_assets"] == 501
+
+    def test_null_assets_count(self, mock_direct_api):
+        from snipeit_mcp import status_summary
+        mock_direct_api._request.return_value = {
+            "total": 1,
+            "rows": [{"name": "Archived", "assets_count": None}],
+        }
+        result = get_tool_fn(status_summary)()
+        assert result["success"] is True
+        assert result["summary"] == {"Archived": 0}
 
 class TestAuditTracking:
     def test_due(self, mock_direct_api):

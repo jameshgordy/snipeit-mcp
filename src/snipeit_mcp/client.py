@@ -100,7 +100,14 @@ class SnipeITDirectAPI:
             raise SnipeITValidationError(str(error_data.get("messages", error_data)))
 
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        # Snipe-IT returns HTTP 200 with {"status": "error", "messages": ...}
+        # for many failures (e.g. unknown sub-resource); surface those as
+        # errors instead of letting callers report them as success.
+        if isinstance(data, dict) and data.get("status") == "error":
+            messages = data.get("messages") or "Unknown API error"
+            raise SnipeITException(str(messages))
+        return data
 
     def list(self, endpoint: str, limit: int = 50, offset: int = 0,
              search: str | None = None, sort: str | None = None,
