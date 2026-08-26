@@ -147,6 +147,101 @@ MCP_PORT=8000
 > OAuth mode requires HTTP transport — starting with `MCP_TRANSPORT=stdio`
 > while OAuth env vars are set fails at startup with a clear error.
 
+#### Mode C — multi-identity (HTTP, one container, per-user tokens)
+
+In this mode **one container serves all people**, each still acting under
+their own Snipe-IT personal access token. Instead of one container per
+person (each with a private `SNIPEIT_TOKEN`), every person gets a random
+**MCP token** that they put into their own MetaMCP server entry. The server
+maps `MCP token → identity → Snipe-IT PAT` per request, so the Snipe-IT
+activity log shows the correct person for every action, and the container
+log carries a second, Snipe-IT-independent audit trail.
+
+Mode C requires HTTP transport and is **mutually exclusive with OAuth mode**
+(startup fails if both are configured).
+
+**Per-person tokens:** generate one random token per person, e.g.
+`openssl rand -hex 32`. Tokens must be at least 32 characters, unique per
+person, and different from that person's Snipe-IT PAT (startup validates
+all of this and exits with a clear error otherwise).
+
+**Environment variables:**
+
+```env
+SNIPEIT_URL=https://your-snipeit-instance.com   # one instance for all
+# One block per person (<KEY> matches [A-Z0-9_]+, e.g. STAAT):
+SNIPEIT_IDENTITY_STAAT_MCP_TOKEN=...            # required, >= 32 chars, unique
+SNIPEIT_IDENTITY_STAAT_SNIPEIT_TOKEN=...        # required, the person's Snipe-IT PAT
+SNIPEIT_IDENTITY_STAAT_DISPLAY_NAME=...         # optional, shown in logs
+SNIPEIT_IDENTITY_STAAT_ALLOWED_TOOLS=...        # optional CSV, e.g. manage_assets,system_info
+SNIPEIT_IDENTITY_STAAT_READ_ONLY=true           # optional, blocks all write actions
+# Transport (required for this mode):
+MCP_TRANSPORT=http
+MCP_PORT=8000
+MCP_HOST=127.0.0.1
+```
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SNIPEIT_URL` | Yes | Snipe-IT instance URL (shared by all identities) |
+| `SNIPEIT_IDENTITY_<KEY>_MCP_TOKEN` | Yes | Random bearer token the person uses to authenticate to this MCP server (min 32 chars, unique per person) |
+| `SNIPEIT_IDENTITY_<KEY>_SNIPEIT_TOKEN` | Yes | That person's Snipe-IT personal access token |
+| `SNIPEIT_IDENTITY_<KEY>_DISPLAY_NAME` | No | Human-readable name used in log lines (identity keys are logged at startup, never token values) |
+| `SNIPEIT_IDENTITY_<KEY>_ALLOWED_TOOLS` | No | Comma-separated tool allowlist for that person; enforced at call time **and** in `tools/list` |
+| `SNIPEIT_IDENTITY_<KEY>_READ_ONLY` | No | When true, blocks all write actions (`create`, `update`, `delete`, `checkout`, `checkin`, `audit`, `restore`, file uploads, imports, LDAP sync, …); read actions stay allowed |
+| `SNIPEIT_IDENTITIES_FILE` | No | Path to a JSON file with the same fields (list of objects with an explicit `key`). **If set, the file wins and all `SNIPEIT_IDENTITY_*` env vars are ignored** (logged at startup). For secret-mount based environments. |
+| `MCP_TRANSPORT` | Yes | Must be `http` |
+| `MCP_PORT` | Yes | TCP port for the HTTP server |
+| `MCP_HOST` | No | Bind address (default `127.0.0.1`) |
+| `LOG_LEVEL` | No | `DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL` (default `INFO`) |
+
+**MetaMCP configuration — one entry per person:** the only difference
+between the entries is the bearer token; the URL is identical for everyone.
+
+```text
+MetaMCP server entry (per person, Ownership: Private)
+  Name:         snipeit
+  Type:         Streamable HTTP
+  URL:          http://snipeit-mcp:8000/mcp        ← identical for all
+  Bearer Token: <that person's MCP token>          ← the only difference
+```
+
+**How a request is handled:**
+
+1. The HTTP layer checks `Authorization: Bearer <mcp_token>`. Missing or
+   unknown token → `401` with `WWW-Authenticate: Bearer`, before any tool
+   runs. Token comparison is constant-time (`hmac.compare_digest`).
+2. The identity is stored in a request-scoped context variable; the
+   tool call then authenticates to Snipe-IT with **that person's** PAT.
+3. One JSON audit line per tool call goes to stderr (logger
+   `snipeit_mcp.audit`): identity, tool, action, outcome, duration, and a
+   SHA-256 digest of the arguments (arguments themselves are never logged,
+   and no token ever appears in logs).
+
+```json
+{"ts":"2026-08-26T09:41:02.113456+00:00","identity":"STAAT","tool":"manage_assets","action":"update","ok":true,"duration_ms":142,"args_digest":"9f2c1ab04e6d7731"}
+```
+
+**Health endpoint:** unauthenticated `GET /healthz` returns
+`{"status":"ok","identities":<n>}` — use it for container healthchecks
+(see `deploy/docker-compose.yml`).
+
+> [!WARNING]
+> **Known, accepted limitations** — read before deploying:
+>
+> - The container still holds **all** people's PATs in environment
+>   variables. Whoever can read them (Portainer admin, Docker host access)
+>   can impersonate any identity. Per-request attribution becomes
+>   robust, but it is **not tamper-proof**.
+> - One container for everyone is a **single point of failure** for all of
+>   them — if it goes down, nobody's Snipe-IT access via MCP works.
+> - Bearer-token authentication only protects traffic that stays on the
+>   internal Docker network. **Do not publish the port** to a wider
+>   network (the compose file deliberately has no `ports:` mapping).
+> - Only OAuth mode (Mode B) provides cryptographically sound per-user
+>   attribution, and it does not fit centrally managed clients like
+>   MetaMCP.
+
 ## Production Deployment
 
 For running the server as a long-lived HTTPS service on a Linux VM (the typical
@@ -622,6 +717,9 @@ src/snipeit_mcp/
 ├── __main__.py        # Entry point (snipeit-mcp script)
 ├── mcp_server.py      # FastMCP instance + tool whitelist
 ├── client.py          # SnipeIT API clients
+├── config.py          # Transport + auth-mode config (OAuth / API key / multi-identity)
+├── identity.py        # Multi-identity registry (tokens → PATs), ContextVar, validation
+├── http_auth.py       # Multi-identity HTTP auth (401, /healthz) + audit log + tool policy
 ├── schemas.py         # Pydantic input schemas
 └── tools/             # 10 modules grouped by Snipe-IT domain
     ├── assets.py

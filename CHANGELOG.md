@@ -5,6 +5,41 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Multi-identity mode** (Mode C, `AuthMode.MULTI_IDENTITY`): one container
+  serves all people, each with their own Snipe-IT personal access token.
+  Identities come from `SNIPEIT_IDENTITY_<KEY>_*` environment variables (or a
+  `SNIPEIT_IDENTITIES_FILE` JSON file, which wins over env vars). The HTTP
+  auth layer validates `Authorization: Bearer <mcp_token>` per request
+  (401 + `WWW-Authenticate: Bearer` before any tool runs, constant-time token
+  comparison) and resolves the request's Snipe-IT PAT via a request-scoped
+  context variable. Supports per-identity tool allowlists and a read-only
+  flag (enforced at call time and in `tools/list`), plus an unauthenticated
+  `GET /healthz` endpoint for healthchecks.
+- **Audit log**: one JSON line per tool call on the `snipeit_mcp.audit`
+  logger (stderr) — identity, tool, action, outcome, duration, and a SHA-256
+  digest of the arguments. Arguments themselves and any token values are
+  never logged.
+- `deploy/docker-compose.yml`: one-container multi-identity deployment
+  example — no published ports, networks `egress` + external
+  `metamcp_metamcp-internal`, healthcheck against `/healthz`.
+- `.github/workflows/build.yml`: builds and pushes
+  `ghcr.io/wus-technik/snipeit-mcp:<tag>` and `:latest` (linux/amd64) on
+  version tags.
+
+### Changed
+- Pinned the `snipeit-api` dependency from `@main` to the fixed commit
+  `11cd643d6c961fe51ca91a5f9e1a688e5c9a4a30` (the version already in the lock
+  file). Upstream main has moved past this SHA since (96 commits, including a
+  breaking httpx-based client migration towards snipeit-api 0.2) — adopting
+  it is a deliberate follow-up, not a silent bump.
+- `SnipeITAuthConfig.from_env()` now resolves in the order OAuth →
+  multi-identity → API key; configuring OAuth **and** identities fails at
+  startup (mutually exclusive). Multi-identity mode requires HTTP transport,
+  analogous to OAuth.
+
 ## [1.8.0] - 2026-08-24
 
 ### Added
