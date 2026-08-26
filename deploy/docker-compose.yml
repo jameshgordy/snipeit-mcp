@@ -1,0 +1,56 @@
+# Multi-identity deployment: ONE container serves all people, each with their
+# own Snipe-IT PAT. Which PAT a request uses is decided per request by the
+# caller's bearer token (see README, "Mode C — multi-identity").
+#
+# IMPORTANT (secrets): the ${...} placeholders below are filled from Portainer
+# stack variables. The *_MCP_TOKEN and *_SNIPEIT_TOKEN values are secrets —
+# they belong ONLY in the stack variables, never in this file or in git.
+#
+# IMPORTANT (network): there is deliberately NO "ports:" mapping. The service
+# must stay reachable only on the internal Docker network. Bearer-token auth
+# protects nothing once the port is published to a wider network.
+
+services:
+  snipeit-mcp:
+    image: ghcr.io/wus-technik/snipeit-mcp:latest
+    container_name: snipeit-mcp
+    restart: unless-stopped
+    environment:
+      # One Snipe-IT instance for all identities.
+      SNIPEIT_URL: ${SNIPEIT_URL}
+      MCP_TRANSPORT: "http"
+      MCP_PORT: "8000"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # ----- Identities (one block per person) -----
+      # Values go into the Portainer stack variables.
+      # Generate mcp tokens with: openssl rand -hex 32
+      SNIPEIT_IDENTITY_STAAT_MCP_TOKEN: ${SNIPEIT_IDENTITY_STAAT_MCP_TOKEN}
+      SNIPEIT_IDENTITY_STAAT_SNIPEIT_TOKEN: ${SNIPEIT_IDENTITY_STAAT_SNIPEIT_TOKEN}
+      SNIPEIT_IDENTITY_STAAT_DISPLAY_NAME: ${SNIPEIT_IDENTITY_STAAT_DISPLAY_NAME:-Moritz Staat}
+      # Repeat the block for each additional person:
+      # SNIPEIT_IDENTITY_BAUDER_MCP_TOKEN: ${SNIPEIT_IDENTITY_BAUDER_MCP_TOKEN}
+      # SNIPEIT_IDENTITY_BAUDER_SNIPEIT_TOKEN: ${SNIPEIT_IDENTITY_BAUDER_SNIPEIT_TOKEN}
+      # SNIPEIT_IDENTITY_BAUDER_DISPLAY_NAME: ${SNIPEIT_IDENTITY_BAUDER_DISPLAY_NAME:-}
+      # Optional per-identity policy (uncomment to restrict):
+      # SNIPEIT_IDENTITY_BAUDER_ALLOWED_TOOLS: ${SNIPEIT_IDENTITY_BAUDER_ALLOWED_TOOLS:-}
+      # SNIPEIT_IDENTITY_BAUDER_READ_ONLY: ${SNIPEIT_IDENTITY_BAUDER_READ_ONLY:-false}
+    # Deliberately no "ports:" — see note at the top of this file.
+    networks:
+      - egress
+      - metamcp_metamcp-internal
+    healthcheck:
+      # The image is python:3.12-slim (no curl/wget), so probe /healthz with
+      # the stdlib. /healthz is the one endpoint that needs no bearer token.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  # Shared outbound network for reaching the Snipe-IT instance.
+  egress:
+  # MetaMCP's internal network — MetaMCP reaches this service on it.
+  # Created by the MetaMCP stack; must already exist.
+  metamcp_metamcp-internal:
+    external: true
