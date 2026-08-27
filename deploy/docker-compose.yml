@@ -12,7 +12,7 @@
 
 services:
   snipeit-mcp:
-    image: ghcr.io/wus-technik/snipeit-mcp:latest
+    image: ghcr.io/jameshgordy/snipeit-mcp:latest
     container_name: snipeit-mcp
     restart: unless-stopped
     environment:

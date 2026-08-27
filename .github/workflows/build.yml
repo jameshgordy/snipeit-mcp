@@ -2,7 +2,8 @@ name: Build & Push Image
 
 on:
   push:
-    tags: ["v*"]
+    # This repo tags releases as X.Y (e.g. "1.8"); also accept a v-prefix.
+    tags: ["[0-9]*", "v[0-9]*"]
 
 permissions:
   contents: read
@@ -36,7 +37,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/wus-technik/snipeit-mcp:${{ steps.version.outputs.tag }}
-            ghcr.io/wus-technik/snipeit-mcp:latest
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.tag }}
+            ghcr.io/${{ github.repository }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   example — no published ports, networks `egress` + external
   `metamcp_metamcp-internal`, healthcheck against `/healthz`.
 - `.github/workflows/build.yml`: builds and pushes
-  `ghcr.io/wus-technik/snipeit-mcp:<tag>` and `:latest` (linux/amd64) on
+  `ghcr.io/jameshgordy/snipeit-mcp:<tag>` and `:latest` (linux/amd64) on
   version tags.
 
 ### Changed
