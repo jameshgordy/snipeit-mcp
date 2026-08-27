@@ -12,9 +12,12 @@ Two independent concerns:
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 # Port validation constants
 MIN_PORT = 1
@@ -48,6 +51,7 @@ class AuthMode(str, Enum):
 
     OAUTH = "oauth"
     API_KEY = "api_key"
+    MULTI_IDENTITY = "multi_identity"
 
 
 @dataclass
@@ -98,15 +102,20 @@ class TransportConfig:
 class SnipeITAuthConfig:
     """How the MCP server authenticates to the upstream Snipe-IT instance.
 
-    Two mutually-exclusive modes:
+    Three mutually-exclusive modes:
 
     * **OAuth** — both ``SNIPEIT_OAUTH_CLIENT_ID`` and ``SNIPEIT_OAUTH_CLIENT_SECRET``
       are set. The MCP server runs an OAuth proxy that hands users off to Snipe-IT's
       Laravel Passport for interactive login; each request to a tool uses the
       authenticated user's own access token. Requires HTTP transport.
-    * **API key** — ``SNIPEIT_TOKEN`` is set (and OAuth vars are not). The MCP
-      server uses a single static personal-access token for every request. Works
-      with both stdio and HTTP transports. Preserves upstream behaviour.
+    * **Multi-identity** — at least one ``SNIPEIT_IDENTITY_<KEY>_*`` identity is
+      configured (or ``SNIPEIT_IDENTITIES_FILE`` is set). One container serves many
+      people: each request carries a personal bearer token that selects which
+      Snipe-IT personal access token the tool calls use. Requires HTTP transport.
+      See :mod:`snipeit_mcp.identity`.
+    * **API key** — ``SNIPEIT_TOKEN`` is set (and no OAuth vars / identities). The
+      MCP server uses a single static personal-access token for every request.
+      Works with both stdio and HTTP transports. Preserves upstream behaviour.
     """
 
     mode: AuthMode
@@ -144,6 +153,16 @@ class SnipeITAuthConfig:
             )
 
         if client_id and client_secret:
+            # OAuth and multi-identity are mutually exclusive: both resolve the
+            # upstream credential per request, and mixing them would be ambiguous.
+            from .identity import load_identity_registry  # noqa: PLC0415 — avoid import cycle
+
+            if load_identity_registry() is not None:
+                raise ConfigError(
+                    "OAuth mode (SNIPEIT_OAUTH_CLIENT_ID/SECRET) and multi-identity mode "
+                    "(SNIPEIT_IDENTITY_* or SNIPEIT_IDENTITIES_FILE) are mutually "
+                    "exclusive. Configure one or the other."
+                )
             base_url = os.getenv("SNIPEIT_MCP_BASE_URL")
             if not base_url:
                 raise ConfigError(
@@ -161,13 +180,30 @@ class SnipeITAuthConfig:
                 oauth_cache_ttl_seconds=_env_int("SNIPEIT_OAUTH_CACHE_TTL", 60),
             )
 
+        # Multi-identity mode: at least one identity configured. Takes
+        # precedence over a stray SNIPEIT_TOKEN (which would otherwise be the
+        # single shared identity and silently override per-user attribution).
+        from .identity import load_identity_registry  # noqa: PLC0415 — avoid import cycle
+
+        registry = load_identity_registry()
+        if registry is not None:
+            if token:
+                logger.warning(
+                    "Multi-identity mode active; SNIPEIT_TOKEN is ignored "
+                    "(%d identities configured)",
+                    len(registry),
+                )
+            return cls(mode=AuthMode.MULTI_IDENTITY, url=url)
+
         if token:
             return cls(mode=AuthMode.API_KEY, url=url, token=token)
 
         raise ConfigError(
-            "No Snipe-IT credentials configured. Set either:\n"
+            "No Snipe-IT credentials configured. Set one of:\n"
             "  - SNIPEIT_OAUTH_CLIENT_ID + SNIPEIT_OAUTH_CLIENT_SECRET + SNIPEIT_MCP_BASE_URL "
-            "(interactive OAuth), or\n"
+            "(interactive OAuth),\n"
+            "  - SNIPEIT_IDENTITY_<KEY>_MCP_TOKEN + SNIPEIT_IDENTITY_<KEY>_SNIPEIT_TOKEN per "
+            "person (multi-identity, HTTP transport), or\n"
             "  - SNIPEIT_TOKEN (static personal-access token)"
         )
 
@@ -178,4 +214,10 @@ class SnipeITAuthConfig:
                 "OAuth mode requires HTTP transport. "
                 "Set MCP_TRANSPORT=http and MCP_PORT (the OAuth flow needs HTTP routes "
                 "for /authorize and the callback)."
+            )
+        if self.mode == AuthMode.MULTI_IDENTITY and transport.transport != TransportType.HTTP:
+            raise ConfigError(
+                "Multi-identity mode requires HTTP transport. "
+                "Set MCP_TRANSPORT=http and MCP_PORT — the identity is selected per "
+                "request from the Authorization header, which stdio does not have."
             )

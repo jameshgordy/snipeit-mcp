@@ -5,9 +5,19 @@ under :mod:`snipeit_mcp.tools` import ``mcp`` from here and attach themselves
 via ``@mcp.tool(...)`` decorators. Importing this module triggers registration
 of every tool by importing :mod:`snipeit_mcp.tools` at the bottom.
 
-The FastMCP instance is constructed with a :class:`SnipeITOAuthProvider` when
-OAuth env vars are set (interactive web mode); otherwise it runs without an
-auth provider and tools authenticate via the static ``SNIPEIT_TOKEN`` env var.
+The FastMCP instance is constructed per auth mode:
+
+* **OAuth** — with a :class:`SnipeITOAuthProvider` (interactive web mode).
+* **Multi-identity** — with the :class:`IdentityToolMiddleware`, which
+  enforces each identity's tool allowlist / read-only flag, filters
+  ``tools/list`` per identity, and writes the JSON audit line per tool call.
+* **API key** — without any auth provider; tools authenticate via the static
+  ``SNIPEIT_TOKEN`` env var.
+
+The HTTP bearer-token layer (:class:`MultiIdentityAuthMiddleware`, which also
+serves ``/healthz``) is registered at run time in :mod:`snipeit_mcp.__main__`,
+not here.
+
 Logging is *not* configured here — that lives in :mod:`snipeit_mcp.logging_config`
 and must be called from the entry point before this module is imported, so
 stdio JSON-RPC traffic on stdout stays uncorrupted.
@@ -20,29 +30,27 @@ from fastmcp import FastMCP
 
 from .auth import SnipeITOAuthProvider
 from .config import AuthMode, ConfigError, SnipeITAuthConfig
+from .identity import load_identity_registry
 
 logger = logging.getLogger(__name__)
 
 
-def _build_auth_provider() -> SnipeITOAuthProvider | None:
-    """Construct an OAuth provider from env if OAuth mode is configured.
+def _load_auth_config():
+    """Read the auth config at import time, tolerating a missing/partial setup.
 
-    Returns ``None`` in API-key mode, when SNIPEIT_URL is missing, or when only
-    a partial OAuth config is present. :class:`ConfigError` from
-    :meth:`SnipeITAuthConfig.from_env` is swallowed at import time so the server
-    can still start in degraded modes (e.g. for ``--help``); the real validation
-    runs in ``__main__.main`` via ``SnipeITAuthConfig.from_env()``.
-
-    Only ``ConfigError`` is caught: any *other* exception (e.g. an OAuthProxy
-    construction failure) must propagate loudly. Swallowing it would silently
-    drop the auth provider and start an OAuth-intended, internet-facing HTTP
-    server with no authentication layer.
+    ``ConfigError`` is swallowed so the module stays importable in degraded
+    modes (e.g. tests that set env vars per test); the real validation runs in
+    ``__main__.main``. Any *other* exception must propagate loudly.
     """
     try:
-        cfg = SnipeITAuthConfig.from_env()
-    except ConfigError:  # deferred to entry point, which validates and reports
+        return SnipeITAuthConfig.from_env()
+    except ConfigError:
         return None
-    if cfg.mode != AuthMode.OAUTH:
+
+
+def _build_auth_provider(cfg):
+    """Construct the OAuth provider when OAuth mode is configured, else ``None``."""
+    if cfg is None or cfg.mode != AuthMode.OAUTH:
         return None
     assert cfg.oauth_client_id and cfg.oauth_client_secret and cfg.oauth_base_url
     return SnipeITOAuthProvider(
@@ -56,10 +64,35 @@ def _build_auth_provider() -> SnipeITOAuthProvider | None:
     )
 
 
-_auth_provider = _build_auth_provider()
+def _build_identity_middleware(cfg):
+    """Construct the per-identity tool middleware in multi-identity mode, else ``None``.
+
+    The middleware enforces each identity's tool allowlist and read-only flag,
+    filters ``tools/list`` per identity, and writes the JSON audit line for
+    every tool call.
+    """
+    if cfg is None or cfg.mode != AuthMode.MULTI_IDENTITY:
+        return None
+    registry = load_identity_registry()
+    assert registry is not None, "MULTI_IDENTITY mode implies a loaded registry"
+    from .http_auth import IdentityToolMiddleware  # noqa: PLC0415 — keep import local
+
+    return IdentityToolMiddleware(registry)
+
+
+_auth_config = _load_auth_config()
+_auth_provider = _build_auth_provider(_auth_config)
+_identity_middleware = _build_identity_middleware(_auth_config)
+
 if _auth_provider is not None:
     logger.info("Snipe-IT OAuth provider configured (interactive login enabled)")
     mcp = FastMCP(name="Snipe-IT MCP Server", auth=_auth_provider)
+elif _identity_middleware is not None:
+    logger.info(
+        "Multi-identity mode: %d identities, per-identity policy + audit logging active",
+        len(_identity_middleware.registry),
+    )
+    mcp = FastMCP(name="Snipe-IT MCP Server", middleware=[_identity_middleware])
 else:
     mcp = FastMCP(name="Snipe-IT MCP Server")
 

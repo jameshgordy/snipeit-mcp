@@ -9,7 +9,11 @@ keywords = ["mcp", "snipeit", "inventory", "asset-management", "ai"]
 dependencies = [
     "fastmcp>=3.0.0,<4.0.0",
     "requests>=2.31.0",
-    "snipeit-api @ git+https://github.com/lfctech/snipeit-python-api@main",
+    # Pinned to a fixed commit (was @main): a moving dependency on a foreign
+    # repo is not acceptable in production. As of 2026-08-26 upstream main has
+    # moved past this SHA (including a breaking httpx migration, snipeit-api
+    # 0.2) — revisit deliberately when that migration is ready.
+    "snipeit-api @ git+https://github.com/lfctech/snipeit-python-api@11cd643d6c961fe51ca91a5f9e1a688e5c9a4a30",
 ]
 
 [project.optional-dependencies]

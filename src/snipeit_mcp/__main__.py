@@ -38,20 +38,41 @@ def main() -> None:
         print(f"Configuration error: {exc}", file=sys.stderr)
         sys.exit(2)
 
-    # OAuth implies HTTP transport — validate_with_transport above already
+# OAuth implies HTTP transport — validate_with_transport above already
     # rejected the OAuth+stdio combination, so by this point the transport is
-    # consistent with the auth mode.
+    # consistent with the auth mode. Multi-identity mode also requires HTTP
+    # (validated above), so the ASGI bearer-token layer is only needed there.
 
     from .mcp_server import mcp  # noqa: PLC0415 — lazy import after logging+config
 
     if transport.transport == TransportType.HTTP:
-        mode_label = "OAuth" if auth.mode == AuthMode.OAUTH else "API-key"
+        from starlette.middleware import Middleware as StarletteMiddleware  # noqa: PLC0415
+
+        middleware = []
+        if auth.mode == AuthMode.MULTI_IDENTITY:
+            from .http_auth import MultiIdentityAuthMiddleware  # noqa: PLC0415
+            from .identity import load_identity_registry  # noqa: PLC0415
+
+            registry = load_identity_registry()
+            assert registry is not None, "MULTI_IDENTITY mode implies a loaded registry"
+            # Starlette wraps the class: it constructs
+            # MultiIdentityAuthMiddleware(app=<inner app>, registry=...).
+            middleware = [StarletteMiddleware(MultiIdentityAuthMiddleware, registry=registry)]
+            mode_label = f"multi-identity, {len(registry)} identities"
+        elif auth.mode == AuthMode.OAUTH:
+            mode_label = "OAuth"
+        else:
+            mode_label = "API-key"
         print(
-            f"Starting Snipe-IT MCP Server (HTTP, {mode_label} mode) "
+            f"Starting Snipe-IT MCP Server (HTTP, {mode_label}) "
             f"on http://{transport.host}:{transport.port}",
             file=sys.stderr,
         )
-        mcp.run(transport="http", host=transport.host, port=transport.port)
+        if middleware:
+            mcp.run(transport="http", host=transport.host, port=transport.port,
+                    middleware=middleware)
+        else:
+            mcp.run(transport="http", host=transport.host, port=transport.port)
     else:
         mcp.run()
 

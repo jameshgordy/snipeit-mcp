@@ -7,9 +7,17 @@ Tool modules access the credentials and clients defined here via
 the patch propagate to every tool module.
 
 The bearer credential used for each call is resolved per-request by
-:func:`_resolve_token`: in OAuth mode the authenticated user's own token is
-pulled from the FastMCP request context; otherwise the static
-``SNIPEIT_TOKEN`` env var is used. The same code path works for both modes.
+:func:`_resolve_token` in this order:
+
+1. The authenticated user's OAuth token from the FastMCP request context
+   (OAuth mode).
+2. The current identity's ``snipeit_token`` from the ``current_identity``
+   contextvar (multi-identity mode — the HTTP auth layer sets it per request).
+3. The static ``SNIPEIT_TOKEN`` env var (API-key mode / headless use / tests).
+
+``get_snipeit_client()`` / ``SnipeITDirectAPI.__init__`` create a fresh client
+instance for every call, so the per-request resolution is the single source of
+truth — there is no shared client state to invalidate.
 """
 
 from __future__ import annotations
@@ -25,6 +33,8 @@ from snipeit.exceptions import (
     SnipeITValidationError,
 )
 
+from .identity import current_identity
+
 def _resolve_url() -> str | None:
     """Return the configured Snipe-IT base URL, read fresh from the env each call.
 
@@ -37,10 +47,20 @@ def _resolve_url() -> str | None:
 def _resolve_token() -> str | None:
     """Return the bearer credential to use for the current call.
 
-    Prefers the authenticated user's OAuth credential from the FastMCP request
-    context when present (OAuth mode), falling back to the ``SNIPEIT_TOKEN``
-    env var (API-key mode / headless use / tests). Returns ``None`` when
-    neither is available; callers raise :class:`SnipeITException` in that case.
+    Resolution order:
+
+    1. OAuth mode — the authenticated user's token from the FastMCP request
+       context, when present.
+    2. Multi-identity mode — the ``snipeit_token`` of the identity resolved
+       from the request's ``Authorization: Bearer`` header. The HTTP auth
+       layer stores it in the ``current_identity`` contextvar; FastMCP runs
+       sync tool functions in anyio worker threads, and anyio copies the
+       current context into those threads, so the value set for the request
+       is visible here.
+    3. API-key mode / tests — the static ``SNIPEIT_TOKEN`` env var.
+
+    Returns ``None`` when nothing is available; callers raise
+    :class:`SnipeITException` in that case.
     """
     try:
         from fastmcp.server.dependencies import get_access_token
@@ -52,6 +72,11 @@ def _resolve_token() -> str | None:
         access = get_access_token()
     if access is not None:
         return access.token
+
+    identity = current_identity.get()
+    if identity is not None:
+        return identity.snipeit_token
+
     return os.getenv("SNIPEIT_TOKEN")
 
 

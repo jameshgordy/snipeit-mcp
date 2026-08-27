@@ -1300,14 +1300,14 @@ wheels = [
 [[package]]
 name = "snipeit-api"
 version = "0.1.0"
-source = { git = "https://github.com/lfctech/snipeit-python-api?rev=main#11cd643d6c961fe51ca91a5f9e1a688e5c9a4a30" }
+source = { git = "https://github.com/lfctech/snipeit-python-api?rev=11cd643d6c961fe51ca91a5f9e1a688e5c9a4a30#11cd643d6c961fe51ca91a5f9e1a688e5c9a4a30" }
 dependencies = [
     { name = "requests" },
 ]
 
 [[package]]
 name = "snipeit-mcp"
-version = "1.6.0"
+version = "1.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
@@ -1329,7 +1329,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "responses", marker = "extra == 'test'", specifier = ">=0.23.0" },
-    { name = "snipeit-api", git = "https://github.com/lfctech/snipeit-python-api?rev=main" },
+    { name = "snipeit-api", git = "https://github.com/lfctech/snipeit-python-api?rev=11cd643d6c961fe51ca91a5f9e1a688e5c9a4a30" },
 ]
 provides-extras = ["test"]
 
