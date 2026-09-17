@@ -43,6 +43,7 @@ jobs:
             3. Only if it's a bug report missing what's needed to reproduce it
                (Snipe-IT version, snipeit-mcp version, auth mode, the tool
                called, the error), post ONE short comment asking for exactly
-               what's missing. Otherwise don't comment.
+               what's missing, and mention that the maintainer generally reviews
+               issues on Mondays (unless on vacation). Otherwise don't comment.
           claude_args: |
             --allowedTools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh label list:*),Bash(gh issue edit:*),Bash(gh issue comment:*)"
