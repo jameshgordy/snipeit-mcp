@@ -762,3 +762,5 @@ MIT License
 ## Contributing
 
 Contributions welcome! Please open an issue or submit a pull request.
+
+Issues and pull requests are generally reviewed on Mondays (unless I'm on vacation), so expect a reply within about a week. New issues get labelled automatically in the meantime.
