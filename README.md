@@ -1,6 +1,6 @@
 # Snipe-IT MCP Server
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for managing [Snipe-IT](https://snipeitapp.com/) inventory systems. This server enables AI assistants to perform full CRUD operations across your entire Snipe-IT instance with **40 tools** covering all major API endpoints.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for managing [Snipe-IT](https://snipeitapp.com/) inventory systems. This server enables AI assistants to perform full CRUD operations across your entire Snipe-IT instance with **40 tools** covering all major API endpoints, plus **2 optional data-quality tools** that use a judgment model — [TypeSafe Jev](https://typesafe.ai/), a self-hosted open-weight System One model such as Laya, or an OpenAI-compatible chat model via Ollama — for duplicate detection and record matching.
 
 ## Features
 
@@ -51,6 +51,12 @@ A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
 - **Item Activity**: Get activity for specific items
 - **Status Summary**: Asset counts grouped by status label
 - **Audit Tracking**: Track assets due/overdue for audit
+
+### Data Quality (optional, judgment-model backed)
+- **Duplicate Detection**: Find likely duplicate manufacturers, models, suppliers, locations, categories, companies, or departments — judged pairwise with a confidence per pair
+- **Record Matching**: Resolve free-text names (CSV cells, spoken descriptions) to existing record IDs, with an explicit "none" abstention
+- **Bring your own model**: TypeSafe Jev (hosted), any self-hosted server speaking the System One protocol (Laya, CLM, …), or any OpenAI-compatible chat server (Ollama, vLLM, LM Studio, …)
+- Enabled only when a backend is configured; see [Optional — judgment backend for the data-quality tools](#optional--judgment-backend-for-the-data-quality-tools)
 
 ### Import & System Administration
 - **CSV Imports**: Full import workflow (upload, map columns, process)
@@ -241,6 +247,91 @@ MetaMCP server entry (per person, Ownership: Private)
 > - Only OAuth mode (Mode B) provides cryptographically sound per-user
 >   attribution, and it does not fit centrally managed clients like
 >   MetaMCP.
+
+#### Optional — judgment backend for the data-quality tools
+
+The two data-quality tools, `find_duplicates` and `match_records`, ask *typed
+questions* — "are these two records the same manufacturer?" (a 3-level score),
+"which of these models does this text refer to?" (a choice with a `none`
+option) — and need a model to answer them with a probability per option. They
+are **hidden from `tools/list` until a backend is configured**, so an
+unconfigured server presents exactly the 40 core tools. They work in every auth
+mode and are read-only with respect to Snipe-IT.
+
+| Backend (`JUDGMENT_BACKEND`) | Works with | Confidence | Speed / cost |
+|------------------------------|-----------|------------|--------------|
+| `systemone` (default) | [TypeSafe Jev](https://typesafe.ai/) (hosted, needs a key from [console.typesafe.ai](https://console.typesafe.ai/keys)); self-hosted open-weight *System One* models that serve the same `POST /v1/systemone` protocol — [Laya](https://systemonemodels.org/models/laya/) (Apache 2.0, ~400M params), CLM-8B, [Rapid-MLX](https://github.com/raullenchai/Rapid-MLX)'s system-one server, [openjev](https://github.com/razorback16/openjev) | **Calibrated** probabilities; the thresholds below are meaningful | ~0.1 s per question set; Jev is ~$0.04 per million input tokens, self-hosted is free |
+| `openai` | Any OpenAI-compatible `/chat/completions` server with JSON-schema structured outputs: [Ollama](https://ollama.com) (≥ 0.5), vLLM, LM Studio, llama.cpp server, OpenRouter, OpenAI | **Not calibrated**: the model's self-reported confidence, or vote frequency across `JUDGMENT_SAMPLES` runs | Seconds per question set on a local 8B model; a 100-pair scan is minutes, not seconds |
+
+> [!NOTE]
+> Only the hosted TypeSafe API has been exercised for wire-format
+> compatibility (against the official SDK's source). The self-hosted System One
+> servers and the chat backend have been tested against mocked HTTP only —
+> please report what works for you.
+
+**TypeSafe Jev (hosted):**
+
+```env
+TYPESAFE_API_KEY=...                          # the typesafe-sdk variable name is accepted as-is
+#TYPESAFE_DEFAULT_MODEL=jev-1.13.0            # pin a version once thresholds are tuned
+```
+
+**Self-hosted System One model (e.g. Laya):**
+
+```env
+JUDGMENT_BACKEND=systemone
+JUDGMENT_BASE_URL=http://laya:8080            # must serve POST /v1/systemone
+JUDGMENT_MODEL=laya
+```
+
+**Ollama (or any OpenAI-compatible server):**
+
+```env
+JUDGMENT_BACKEND=openai
+JUDGMENT_BASE_URL=http://localhost:11434/v1   # Ollama's OpenAI-compatible base (default)
+JUDGMENT_MODEL=qwen3:8b                       # any pulled model that follows JSON schemas well
+#JUDGMENT_SAMPLES=3                           # optional: vote across 3 samples instead of self-reported confidence
+#JUDGMENT_API_KEY=sk-...                      # only for hosted services (OpenRouter, OpenAI, ...)
+```
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `JUDGMENT_BACKEND` | No | `systemone` (default) or `openai`. Setting any `JUDGMENT_*` / `TYPESAFE_*` variable enables the tools. |
+| `JUDGMENT_BASE_URL` | No | Default `https://api.typesafe.ai` for `systemone`, `http://localhost:11434/v1` for `openai`. Alias: `TYPESAFE_BASE_URL`. |
+| `JUDGMENT_MODEL` | For `openai` | Default `jev-latest` for `systemone`; required for `openai` (e.g. `qwen3:8b`). Alias: `TYPESAFE_DEFAULT_MODEL`. Aliases like `jev-latest` move with releases; pin a version after tuning thresholds. |
+| `JUDGMENT_API_KEY` | For hosted services | Sent as `Authorization: Bearer`. Omit for local servers. Alias: `TYPESAFE_API_KEY`. |
+| `JUDGMENT_TIMEOUT` | No | Per-request timeout in seconds (default `10` for `systemone`, `120` for `openai`). Retries on 408/429/5xx and transport errors follow the official TypeSafe SDK policy (2 retries, exponential backoff, `Retry-After` honoured). Alias: `TYPESAFE_TIMEOUT`. |
+| `JUDGMENT_SAMPLES` | No | `openai` only, 1–10 (default `1`). Above 1, each question set is asked that many times at a sampling temperature and vote frequency becomes the probability. Multiplies cost and latency. |
+| `JUDGMENT_TIME_BUDGET` | No | Seconds one tool call may spend on backend calls in total (default `300`). Pairs or texts still pending at the deadline are skipped and listed in `errors`. |
+
+> [!WARNING]
+> **With a hosted backend, data leaves your network.** The projected fields of
+> the scanned records — names, model numbers, addresses, and supplier/company
+> contact URLs, emails and phone numbers — are sent to whatever
+> `JUDGMENT_BASE_URL` points at. Self-host (Laya, Ollama, …) if that is not
+> acceptable. Users are deliberately **not** supported by these tools because
+> user records are personal data. For TypeSafe, review their
+> [legal terms](https://docs.typesafe.ai/legal) (zero data retention is an
+> enterprise option). In multi-identity mode, restrict who may call these tools
+> with `SNIPEIT_IDENTITY_<KEY>_ALLOWED_TOOLS`.
+
+**Cost and limits.** `find_duplicates` compares every pair when the table is
+small (≤ `max_pairs` pairs) and otherwise pre-filters lexically similar pairs
+in code (capped at 20 000 comparisons), so backend calls are bounded by
+`max_pairs` (default 100, max 500). `match_records` sends at most
+`candidates_per_text` records (default 50, max 254) plus `none` per text. Both
+tools report `usage` token counts and `elapsed_seconds`, and stop submitting
+work when `JUDGMENT_TIME_BUDGET` runs out.
+
+**Reading the results.** Every judgment carries a `confidence` (0–1) and a
+`confidence_band`: `high` (≥ 0.9) is safe to act on, `medium` (0.5–0.9) should
+be confirmed by a person, `low` should not be acted on. Every result also says
+who judged: `backend`, `model`, `calibrated` and `confidence_source` (`model`
+for System One models, `self_reported` or `vote_frequency` for chat models).
+The bands are only meaningful when `calibrated` is `true`; with a chat backend
+treat them as a hint and keep a human in the loop. `find_duplicates` separates
+`duplicates` (judged the same), `review` (related, possibly the same) and
+`different_count`; treat `review` as a to-check list, never a to-merge list.
 
 ## Production Deployment
 
@@ -476,7 +567,7 @@ Then in the Inspector UI:
 > common misconfiguration; those credentials belong only in the server's
 > `.env`, not in any MCP client.
 
-## Available Tools (40 Total)
+## Available Tools (40 core + 2 optional)
 
 ### Asset Tools (8)
 
@@ -558,6 +649,13 @@ Then in the Inspector UI:
 | Tool | Description |
 |------|-------------|
 | `manage_imports` | CSV import workflow (upload, map columns, process) |
+
+### Data Quality Tools (2, optional — require a judgment backend)
+
+| Tool | Description |
+|------|-------------|
+| `find_duplicates` | Find likely duplicate manufacturers, models, suppliers, locations, categories, companies or departments; pairwise judgments with score, confidence, both records and a merge hint |
+| `match_records` | Resolve free-text names to existing record ids (or `none`) with per-option probabilities — for import prep and natural-language asset creation |
 
 ### System Administration Tools (4)
 
@@ -715,13 +813,16 @@ All list endpoints return pagination metadata:
 src/snipeit_mcp/
 ├── __init__.py        # Public API re-exports
 ├── __main__.py        # Entry point (snipeit-mcp script)
-├── mcp_server.py      # FastMCP instance + tool whitelist
+├── mcp_server.py      # FastMCP instance + tool whitelist + optional-tool visibility
 ├── client.py          # SnipeIT API clients
+├── judgment.py        # Judgment backend config/selection + shared HTTP retry (optional tools)
+├── systemone.py       # System One protocol backend (TypeSafe Jev, Laya, CLM, …)
+├── chat_judge.py      # OpenAI-compatible chat backend (Ollama, vLLM, LM Studio, …)
 ├── config.py          # Transport + auth-mode config (OAuth / API key / multi-identity)
 ├── identity.py        # Multi-identity registry (tokens → PATs), ContextVar, validation
 ├── http_auth.py       # Multi-identity HTTP auth (401, /healthz) + audit log + tool policy
 ├── schemas.py         # Pydantic input schemas
-└── tools/             # 10 modules grouped by Snipe-IT domain
+└── tools/             # 11 modules grouped by Snipe-IT domain
     ├── assets.py
     ├── inventory.py
     ├── foundational.py
@@ -730,13 +831,15 @@ src/snipeit_mcp/
     ├── custom_fields.py
     ├── reports.py
     ├── imports.py
-    └── system.py
+    ├── system.py
+    └── data_quality.py   # find_duplicates / match_records (judgment-backed)
 ```
 
 Built with:
 - **[FastMCP](https://gofastmcp.com)**: Python framework for MCP servers
 - **[snipeit-python-api](https://github.com/lfctech/snipeit-python-api)**: Snipe-IT API client
 - **[Pydantic](https://docs.pydantic.dev)**: Data validation and type safety
+- **Judgment backends** (optional): the [System One protocol](https://docs.typesafe.ai/) (TypeSafe Jev, Laya, CLM, …) or any OpenAI-compatible chat server (Ollama, …) behind the data-quality tools
 
 ## Troubleshooting
 
