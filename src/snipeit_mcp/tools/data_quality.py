@@ -1,10 +1,14 @@
-"""Snipe-IT data-quality tools powered by TypeSafe Jev (optional).
+"""Snipe-IT data-quality tools backed by a judgment model (optional).
 
 These tools answer questions the calling LLM *could* answer itself, but only by
 paging hundreds of reference records through its context and comparing them by
-hand. Jev is a judgment-only model that returns typed answers with calibrated
-probabilities for a few hundredths of a cent per pair, so the comparison runs
-server-side and the agent receives just the shortlist plus confidence.
+hand. Instead, typed questions ("are these two records the same manufacturer?")
+go to a *judgment backend* (:mod:`snipeit_mcp.judgment`): TypeSafe Jev or a
+self-hosted System One model such as Laya, which return calibrated probabilities
+in ~100 ms for a few hundredths of a cent per pair, or an OpenAI-compatible chat
+model such as one served by Ollama, which is slower and whose confidence is
+self-reported. Either way the comparison runs server-side and the agent
+receives just the shortlist plus confidence.
 
 * :func:`find_duplicates` — pairwise duplicate detection over one reference
   table (manufacturers, models, suppliers, locations, categories, companies,
@@ -15,13 +19,13 @@ server-side and the agent receives just the shortlist plus confidence.
   abstain. Useful before creating assets or mapping imports.
 
 Both tools are read-only with respect to Snipe-IT, and are hidden from
-``tools/list`` unless ``TYPESAFE_API_KEY`` is set (see
-:func:`snipeit_mcp.mcp_server.apply_optional_tool_visibility`).
+``tools/list`` unless a judgment backend is configured (``TYPESAFE_API_KEY`` or
+``JUDGMENT_*``; see :func:`snipeit_mcp.mcp_server.apply_optional_tool_visibility`).
 
 Privacy: the projected fields of the scanned records (names, model numbers,
 addresses, contact URLs/emails of suppliers and companies) are sent to the
-TypeSafe API. Users are deliberately not supported here because user records
-are personal data. Restrict who may call these tools with the per-identity
+configured backend — a hosted API unless you self-host. Users are deliberately
+not supported here because user records are personal data. Restrict who may call these tools with the per-identity
 allowlist if that matters for your deployment.
 
 Endpoints used: ``GET /api/v1/{manufacturers,models,suppliers,locations,
@@ -33,8 +37,9 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from itertools import combinations
@@ -48,7 +53,7 @@ from snipeit.exceptions import (
 )
 
 from .. import client as _client
-from .. import typesafe
+from .. import judgment
 from ..config import ConfigError
 from ..mcp_server import mcp
 
@@ -66,6 +71,9 @@ MAX_TEXTS = 200
 # A choice question allows 255 options; one is reserved for the "none" option.
 MAX_CANDIDATES = 254
 MAX_WORKERS = 8
+# Upper bound on lexical comparisons in the blocked path, so a huge bucket of
+# records sharing a common token cannot reintroduce the O(n²) the blocking avoids.
+MAX_SCORED_PAIRS = 20000
 NONE_OPTION = "none"
 
 VERDICTS = ("different", "review", "same")
@@ -254,13 +262,16 @@ def candidate_pairs(
     block_key: Callable[[dict], str | None] | None = None,
     partition_key: Callable[[dict], Any] | None = None,
 ) -> tuple[list[tuple[int, int, float]], bool]:
-    """Return ``([(i, j, similarity), ...], blocked)`` for records worth sending to Jev.
+    """Return ``([(i, j, similarity), ...], blocked, saturated)`` for records worth judging.
 
-    When every pair fits in ``max_pairs`` (small tables), all pairs are returned
-    and ``blocked`` is ``False`` — the model then also sees abbreviation cases
-    that lexical similarity would miss. Otherwise only pairs sharing a token,
-    a 3-character prefix, or ``block_key`` are scored; those at or above
-    ``min_similarity`` are kept, best first, capped at ``max_pairs``.
+    When every compatible pair fits in ``max_pairs`` (small tables), all pairs are
+    returned and ``blocked`` is ``False`` — the model then also sees abbreviation
+    cases that lexical similarity would miss. Otherwise only pairs sharing a
+    token, a 3-character prefix, or ``block_key`` are scored; those at or above
+    ``min_similarity`` are kept, best first, capped at ``max_pairs``. Buckets
+    are visited smallest (most specific) first and scoring stops after
+    :data:`MAX_SCORED_PAIRS` comparisons, in which case ``saturated`` is ``True``
+    and the caller should narrow the scan with ``search``.
     Pairs whose ``partition_key`` differs are never candidates.
     """
     n = len(records)
@@ -278,9 +289,9 @@ def candidate_pairs(
                 sim = 1.0
         return sim
 
-    if n * (n - 1) // 2 <= max_pairs:
+    if compatible_pair_count(records, partition_key) <= max_pairs:
         pairs = [(i, j, similarity(i, j)) for i, j in combinations(range(n), 2) if compatible(i, j)]
-        return pairs, False
+        return pairs, False, False
 
     index: dict[str, list[int]] = {}
     for i, row in enumerate(records):
@@ -293,16 +304,35 @@ def candidate_pairs(
             index.setdefault(key, []).append(i)
 
     seen: set[tuple[int, int]] = set()
-    for members in index.values():
+    saturated = False
+    for members in sorted(index.values(), key=len):
         if len(members) < 2:
             continue
         for i, j in combinations(members, 2):
-            seen.add((i, j) if i < j else (j, i))
+            if len(seen) >= MAX_SCORED_PAIRS:
+                saturated = True
+                break
+            if compatible(i, j):
+                seen.add((i, j) if i < j else (j, i))
+        if saturated:
+            break
 
-    scored = [(i, j, similarity(i, j)) for i, j in seen if compatible(i, j)]
+    scored = [(i, j, similarity(i, j)) for i, j in seen]
     kept = [p for p in scored if p[2] >= min_similarity]
     kept.sort(key=lambda p: (-p[2], p[0], p[1]))
-    return kept[:max_pairs], True
+    return kept[:max_pairs], True, saturated
+
+
+def compatible_pair_count(records: list[dict], partition_key: Callable[[dict], Any] | None) -> int:
+    """Number of unordered pairs that could be duplicates (same partition)."""
+    if partition_key is None:
+        n = len(records)
+        return n * (n - 1) // 2
+    sizes: dict[Any, int] = {}
+    for row in records:
+        key = partition_key(row)
+        sizes[key] = sizes.get(key, 0) + 1
+    return sum(k * (k - 1) // 2 for k in sizes.values())
 
 
 def rank_candidates(text: str, records: list[dict], fields: tuple[str, ...], top: int) -> list[int]:
@@ -389,7 +419,12 @@ def verdict_from_score(score: Any) -> str:
 
 
 def _fetch_all(api: Any, endpoint: str, limit: int, search: str | None) -> tuple[list[dict], int]:
-    """Fetch up to ``limit`` rows in stable (id asc) pages of ``PAGE_SIZE``."""
+    """Fetch up to ``limit`` rows in stable (id asc) pages of ``PAGE_SIZE``.
+
+    Terminates on the server-reported ``total`` (or an empty page), not on a
+    short page: Snipe-IT clamps every response to its own ``max_results``,
+    which an admin may set below ``PAGE_SIZE``.
+    """
     rows_all: list[dict] = []
     total = 0
     offset = 0
@@ -397,26 +432,44 @@ def _fetch_all(api: Any, endpoint: str, limit: int, search: str | None) -> tuple
         page = min(PAGE_SIZE, limit - len(rows_all))
         rows, total = api.list_page(endpoint, limit=page, offset=offset, search=search)
         rows_all.extend(rows)
-        if not rows or len(rows) < page or len(rows_all) >= total:
+        if not rows or len(rows_all) >= total:
             break
         offset += len(rows)
     return rows_all[:limit], max(total, len(rows_all))
 
 
-def _run_parallel(jobs: list[Any], fn: Callable[[Any], dict]) -> list[dict]:
+def _run_parallel(jobs: list[Any], fn: Callable[[Any], dict],
+                  time_budget: float) -> list[dict | None]:
+    """Run ``fn`` over ``jobs`` on a thread pool, in order, within ``time_budget`` seconds.
+
+    Jobs not finished by the deadline are cancelled and come back as ``None``;
+    a job already running when the deadline passes is allowed to finish (each
+    is bounded by the backend's request timeout and retry policy).
+    """
     if not jobs:
         return []
+    results: list[dict | None] = [None] * len(jobs)
     with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(jobs))) as pool:
-        return list(pool.map(fn, jobs))
+        futures = {pool.submit(fn, job): index for index, job in enumerate(jobs)}
+        try:
+            for future in as_completed(futures, timeout=time_budget):
+                results[futures[future]] = future.result()
+        except TimeoutError:
+            logger.warning("Judgment time budget of %ss exhausted; skipping pending work", time_budget)
+            pool.shutdown(wait=True, cancel_futures=True)
+            for future, index in futures.items():
+                if future.done() and not future.cancelled():
+                    results[index] = future.result()
+    return results
 
 
 def _error_dict(tool: str, exc: Exception) -> dict[str, Any]:
-    if isinstance(exc, typesafe.TypeSafeNotConfiguredError):
+    if isinstance(exc, judgment.JudgmentNotConfiguredError):
         return {"success": False, "error": str(exc)}
     if isinstance(exc, ConfigError):
         return {"success": False, "error": f"Configuration error: {exc}"}
-    if isinstance(exc, typesafe.TypeSafeError):
-        return {"success": False, "error": f"TypeSafe error: {exc}"}
+    if isinstance(exc, judgment.JudgmentError):
+        return {"success": False, "error": f"Judgment backend error: {exc}"}
     if isinstance(exc, SnipeITNotFoundError):
         return {"success": False, "error": f"Not found: {exc}"}
     if isinstance(exc, SnipeITAuthenticationError):
@@ -449,11 +502,13 @@ def find_duplicates(
     min_similarity: Annotated[float, "Lexical similarity (0–1) a pair needs to become a candidate when blocking applies"] = 0.6,
     include_different: Annotated[bool, "Also return pairs Jev judged different (default: counts only)"] = False,
 ) -> dict[str, Any]:
-    """Find likely duplicate records in a Snipe-IT reference table using TypeSafe Jev.
+    """Find likely duplicate records in a Snipe-IT reference table using a judgment model.
 
-    Requires TYPESAFE_API_KEY. Fetches the table, picks candidate pairs in code
+    Requires a configured judgment backend (TypeSafe Jev via TYPESAFE_API_KEY, a
+    self-hosted System One model, or an OpenAI-compatible chat model such as
+    Ollama via JUDGMENT_*). Fetches the table, picks candidate pairs in code
     (all pairs for small tables; lexically similar pairs otherwise), and asks
-    Jev for each pair whether the two records are the same real-world entity.
+    the backend for each pair whether the two records are the same entity.
 
     Returns:
         duplicates: pairs judged the same (verdict "same"), best first.
@@ -464,6 +519,9 @@ def find_duplicates(
         the name_variant probability, both records with item counts (keep the
         one with more items), and a resolution_hint on how to merge in Snipe-IT.
         pairs_considered vs pairs_evaluated shows how much blocking cut.
+        backend / calibrated / confidence_source say who judged: the bands are
+        meaningful for calibrated System One models; for chat models the
+        confidence is self-reported (or vote frequency) and only a hint.
 
     Nothing is modified. Verify before deleting: treat "review" and low
     confidence as a to-check list, not a to-merge list.
@@ -474,11 +532,11 @@ def find_duplicates(
         max_pairs = max(1, min(int(max_pairs), MAX_PAIRS))
         min_similarity = max(0.0, min(float(min_similarity), 1.0))
 
-        jev = typesafe.TypeSafeClient()
+        backend = judgment.get_backend()
         api = _client.get_direct_api()
         rows, total = _fetch_all(api, spec.endpoint, limit, search)
 
-        pairs, blocked = candidate_pairs(
+        pairs, blocked, saturated = candidate_pairs(
             rows, min_similarity=min_similarity, max_pairs=max_pairs,
             block_key=spec.block_key, partition_key=spec.partition_key,
         )
@@ -491,8 +549,8 @@ def find_duplicates(
             row_a, row_b = rows[i], rows[j]
             base = {"record_a": spec.record(row_a), "record_b": spec.record(row_b), "similarity": sim}
             try:
-                data = jev.system_one(pair_state(spec, row_a, row_b), questions)
-            except typesafe.TypeSafeError as exc:
+                data = backend.evaluate(pair_state(spec, row_a, row_b), questions)
+            except judgment.JudgmentError as exc:
                 return {**base, "error": str(exc)}
             answers = data.get("answers", {})
             same = answers.get("same_entity") or {}
@@ -502,21 +560,28 @@ def find_duplicates(
                 "verdict": verdict_from_score(same.get("score")),
                 "score": same.get("score"),
                 "confidence": same.get("confidence"),
-                "confidence_band": typesafe.confidence_band(same.get("confidence")),
+                "confidence_band": judgment.confidence_band(same.get("confidence")),
                 "probabilities": same.get("probabilities"),
                 "name_variant": variant.get("noul"),
                 "_usage": data.get("usage"),
                 "_model": data.get("model"),
             }
 
-        evaluated = _run_parallel(pairs, evaluate)
+        started = time.monotonic()
+        evaluated = _run_parallel(pairs, evaluate, backend.config.time_budget)
 
         duplicates: list[dict] = []
         review: list[dict] = []
         different: list[dict] = []
         errors: list[dict] = []
-        for item in evaluated:
-            typesafe.add_usage(usage, item.pop("_usage", None))
+        skipped = 0
+        for pair, item in zip(pairs, evaluated):
+            if item is None:
+                skipped += 1
+                errors.append({"record_a_id": rows[pair[0]].get("id"), "record_b_id": rows[pair[1]].get("id"),
+                               "error": f"skipped: time budget of {backend.config.time_budget:g}s exhausted"})
+                continue
+            judgment.add_usage(usage, item.pop("_usage", None))
             model = item.pop("_model", None) or model
             if "error" in item:
                 errors.append({"record_a_id": item["record_a"].get("id"),
@@ -541,24 +606,38 @@ def find_duplicates(
             "records_scanned": n,
             "records_total": total,
             "truncated": total > n,
-            "pairs_considered": n * (n - 1) // 2,
+            "pairs_considered": compatible_pair_count(rows, spec.partition_key),
             "pairs_evaluated": len(evaluated) - len(errors),
-            "blocking": {"applied": blocked, "min_similarity": min_similarity, "max_pairs": max_pairs},
+            "blocking": {"applied": blocked, "saturated": saturated,
+                         "min_similarity": min_similarity, "max_pairs": max_pairs},
+            "elapsed_seconds": round(time.monotonic() - started, 2),
+            "time_budget_exhausted": skipped > 0,
             "duplicates": duplicates,
             "review": review,
             "different_count": len(different),
             "errors": errors,
-            "model": model or jev.config.model,
+            "backend": backend.name,
+            "model": model or backend.config.model,
+            "calibrated": backend.calibrated,
+            "confidence_source": backend.confidence_source,
             "usage": usage,
             "resolution_hint": spec.resolution_hint,
         }
         if include_different:
             result["different"] = different
+        notes = []
         if total > n:
-            result["note"] = (
-                f"Only the first {n} of {total} records were scanned (ordered by id). Raise "
-                f"limit or use search to cover the rest."
-            )
+            notes.append(f"Only the first {n} of {total} records were scanned (ordered by id). "
+                         "Raise limit or use search to cover the rest.")
+        if saturated:
+            notes.append(f"Lexical blocking stopped after {MAX_SCORED_PAIRS} comparisons; many records "
+                         "share common name tokens. Use search to scan a narrower slice.")
+        if skipped:
+            notes.append(f"{skipped} pair(s) were not judged within the time budget "
+                         f"({backend.config.time_budget:g}s, JUDGMENT_TIME_BUDGET); rerun with a "
+                         "smaller max_pairs or a narrower search.")
+        if notes:
+            result["note"] = " ".join(notes)
         return result
 
     except Exception as exc:  # noqa: BLE001 — tools always return a dict
@@ -581,16 +660,20 @@ def match_records(
     limit: Annotated[int, f"Maximum records to fetch from Snipe-IT (1–{MAX_RECORDS})"] = 2000,
     search: Annotated[str | None, "Optional Snipe-IT search filter to narrow the candidate table"] = None,
 ) -> dict[str, Any]:
-    """Resolve free-text names to existing Snipe-IT records using TypeSafe Jev.
+    """Resolve free-text names to existing Snipe-IT records using a judgment model.
 
-    Requires TYPESAFE_API_KEY. For each text, the lexically closest records are
-    offered to Jev as options together with an explicit "none" option, and Jev
-    picks one with a probability per option.
+    Requires a configured judgment backend (TYPESAFE_API_KEY or JUDGMENT_*). For
+    each text, the lexically closest records are offered to the backend as
+    options together with an explicit "none" option, and it picks one with a
+    probability per option.
 
     Returns, per text: verdict ("accept" when confidence ≥ 0.9, "review" for a
     weaker match, "none" when nothing fits), the matched record (id + fields),
     confidence, and the top alternatives with probabilities. Use the ids
     directly in create/update/import payloads for "accept"; confirm "review".
+    backend / calibrated / confidence_source say who judged; the 0.9 threshold
+    is meaningful for calibrated System One models and only a hint for chat
+    models, whose confidence is self-reported (or vote frequency).
 
     Nothing is modified.
     """
@@ -607,65 +690,80 @@ def match_records(
         top_k = max(1, min(int(top_k), 20))
         limit = max(1, min(int(limit), MAX_RECORDS))
 
-        jev = typesafe.TypeSafeClient()
+        backend = judgment.get_backend()
         api = _client.get_direct_api()
         rows, total = _fetch_all(api, spec.endpoint, limit, search)
         if not rows:
             return {"success": False, "error": f"No {entity_type} found in Snipe-IT to match against"}
 
-        by_id = {str(row.get("id")): row for row in rows}
         match_fields = ("name", *spec.match_fields)
 
         def resolve(text: str) -> dict[str, Any]:
             idxs = rank_candidates(text, rows, match_fields, candidates_per_text)
-            criteria: dict[str, Any] = {str(rows[i].get("id")): spec.facts(rows[i]) for i in idxs}
+            offered = {str(rows[i].get("id")): rows[i] for i in idxs}
+            criteria: dict[str, Any] = {key: spec.facts(row) for key, row in offered.items()}
             criteria[NONE_OPTION] = f"None of the listed {spec.singular} records is the one `text` describes."
             state: dict[str, Any] = {"entity_type": spec.singular, "text": text}
             if context:
                 state["context"] = context
             try:
-                data = jev.system_one(state, match_question(spec, criteria))
-            except typesafe.TypeSafeError as exc:
+                data = backend.evaluate(state, match_question(spec, criteria))
+            except judgment.JudgmentError as exc:
                 return {"text": text, "verdict": "error", "error": str(exc)}
 
             answer = (data.get("answers") or {}).get("match") or {}
             choice = answer.get("choice")
             confidence = answer.get("confidence")
             probabilities = answer.get("probabilities") or {}
-            ranked = sorted(probabilities.items(), key=lambda kv: -kv[1])
+            if choice != NONE_OPTION and choice not in offered:
+                # The backend must pick from the options it was given; anything
+                # else is a protocol violation, never a match.
+                return {"text": text, "verdict": "error",
+                        "error": f"backend chose {choice!r}, which was not among the offered options",
+                        "_usage": data.get("usage"), "_model": data.get("model")}
+            ranked = sorted(((k, p) for k, p in probabilities.items() if k == NONE_OPTION or k in offered),
+                            key=lambda kv: -kv[1])
             alternatives = []
             for key, prob in ranked[:top_k]:
-                row = by_id.get(key)
+                row = offered.get(key)
                 alternatives.append({
                     "id": row.get("id") if row else None,
                     "name": row.get("name") if row else NONE_OPTION,
                     "probability": prob,
                 })
 
-            if choice == NONE_OPTION or choice not in by_id:
+            if choice == NONE_OPTION:
                 verdict, match = "none", None
             else:
-                match = spec.record(by_id[choice])
-                verdict = "accept" if typesafe.confidence_band(confidence) == "high" else "review"
+                match = spec.record(offered[choice])
+                verdict = "accept" if judgment.confidence_band(confidence) == "high" else "review"
             return {
                 "text": text,
                 "verdict": verdict,
                 "match": match,
                 "confidence": confidence,
-                "confidence_band": typesafe.confidence_band(confidence),
+                "confidence_band": judgment.confidence_band(confidence),
                 "alternatives": alternatives,
                 "_usage": data.get("usage"),
                 "_model": data.get("model"),
             }
 
-        results = _run_parallel(cleaned, resolve)
+        started = time.monotonic()
+        raw_results = _run_parallel(cleaned, resolve, backend.config.time_budget)
         usage: dict[str, int] = {}
         model: str | None = None
         summary = {"accept": 0, "review": 0, "none": 0, "error": 0}
-        for item in results:
-            typesafe.add_usage(usage, item.pop("_usage", None))
+        results: list[dict[str, Any]] = []
+        skipped = 0
+        for text, item in zip(cleaned, raw_results):
+            if item is None:
+                skipped += 1
+                item = {"text": text, "verdict": "error",
+                        "error": f"skipped: time budget of {backend.config.time_budget:g}s exhausted"}
+            judgment.add_usage(usage, item.pop("_usage", None))
             model = item.pop("_model", None) or model
             summary[item["verdict"]] = summary.get(item["verdict"], 0) + 1
+            results.append(item)
 
         n = len(rows)
         result: dict[str, Any] = {
@@ -675,16 +773,25 @@ def match_records(
             "records_total": total,
             "truncated": total > n,
             "candidates_per_text": min(candidates_per_text, n),
+            "elapsed_seconds": round(time.monotonic() - started, 2),
+            "time_budget_exhausted": skipped > 0,
             "results": results,
             "summary": summary,
-            "model": model or jev.config.model,
+            "backend": backend.name,
+            "model": model or backend.config.model,
+            "calibrated": backend.calibrated,
+            "confidence_source": backend.confidence_source,
             "usage": usage,
         }
+        notes = []
         if total > n:
-            result["note"] = (
-                f"Only the first {n} of {total} records were candidates (ordered by id). Raise "
-                f"limit or use search to cover the rest."
-            )
+            notes.append(f"Only the first {n} of {total} records were candidates (ordered by id). "
+                         "Raise limit or use search to cover the rest.")
+        if skipped:
+            notes.append(f"{skipped} text(s) were not judged within the time budget "
+                         f"({backend.config.time_budget:g}s, JUDGMENT_TIME_BUDGET); rerun with fewer texts.")
+        if notes:
+            result["note"] = " ".join(notes)
         return result
 
     except Exception as exc:  # noqa: BLE001 — tools always return a dict

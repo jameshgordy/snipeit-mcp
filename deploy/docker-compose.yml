@@ -34,12 +34,20 @@ services:
       # Optional per-identity policy (uncomment to restrict):
       # SNIPEIT_IDENTITY_BAUDER_ALLOWED_TOOLS: ${SNIPEIT_IDENTITY_BAUDER_ALLOWED_TOOLS:-}
       # SNIPEIT_IDENTITY_BAUDER_READ_ONLY: ${SNIPEIT_IDENTITY_BAUDER_READ_ONLY:-false}
-      # ----- Optional: TypeSafe Jev data-quality tools -----
-      # Uncomment to enable find_duplicates / match_records. The key is a
-      # secret (stack variable). Record names/addresses/contact details are
-      # sent to api.typesafe.ai — read the README warning first.
+      # ----- Optional: judgment backend for find_duplicates / match_records -----
+      # Record names/addresses/contact details are sent to the backend — read
+      # the README warning first. Keys are secrets (stack variables).
+      # Hosted TypeSafe Jev:
       # TYPESAFE_API_KEY: ${TYPESAFE_API_KEY}
       # TYPESAFE_DEFAULT_MODEL: ${TYPESAFE_DEFAULT_MODEL:-jev-latest}
+      # ...or a self-hosted System One server (Laya, CLM) on the egress network:
+      # JUDGMENT_BACKEND: systemone
+      # JUDGMENT_BASE_URL: http://laya:8080
+      # JUDGMENT_MODEL: laya
+      # ...or Ollama / any OpenAI-compatible chat server:
+      # JUDGMENT_BACKEND: openai
+      # JUDGMENT_BASE_URL: http://ollama:11434/v1
+      # JUDGMENT_MODEL: qwen3:8b
     # Deliberately no "ports:" — see note at the top of this file.
     networks:
       - egress

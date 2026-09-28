@@ -8,38 +8,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.10.0] - 2026-09-28
 
 ### Added
-- **Data-quality tools powered by TypeSafe Jev** (optional). Jev is a
-  judgment-only "System One" model that answers typed questions with calibrated
-  probabilities; the server uses it for bulk judgments over Snipe-IT reference
-  data that would otherwise cost the calling LLM many pages of context.
+- **Data-quality tools backed by a judgment model** (optional). The tools ask
+  typed questions with a probability per option and are hidden from
+  `tools/list` until a backend is configured, so an unconfigured server
+  presents the same 40 tools as before.
   - `find_duplicates`: pairwise duplicate detection over manufacturers, models,
     suppliers, locations, categories, companies or departments. Candidate pairs
     are chosen in code (all pairs for small tables; token/prefix blocking with a
-    lexical-similarity threshold otherwise, capped by `max_pairs`), then Jev
-    scores each pair on a three-level entity-alignment rubric (different /
-    possibly the same / same) plus a name-variant probability. Returns
-    `duplicates`, `review` and `different_count` with score, confidence,
+    lexical-similarity threshold otherwise, capped by `max_pairs` and at 20 000
+    comparisons), then judged on a three-level entity-alignment rubric
+    (different / possibly the same / same) plus a name-variant probability.
+    Returns `duplicates`, `review` and `different_count` with score, confidence,
     confidence band, both records (with item counts) and a per-type
     `resolution_hint` for merging in Snipe-IT. Categories of different types
     are never compared; models sharing a `model_number` are always compared.
   - `match_records`: resolves free-text names to existing record ids. The
     lexically closest records (default 50, max 254) are offered as options
-    together with an explicit `none`, and Jev picks one with per-option
-    probabilities. Verdicts: `accept` (confidence ≥ 0.9), `review`, `none`.
-  - Both tools are read-only with respect to Snipe-IT and are **hidden from
-    `tools/list` unless `TYPESAFE_API_KEY` is set** (`apply_optional_tool_visibility`
-    in `mcp_server.py`), so an unconfigured server presents the same 40 tools
-    as before. Users are deliberately not supported (personal data).
-- `snipeit_mcp.typesafe`: minimal `requests`-based client for
-  `POST /v1/systemone` (no new dependency). Env vars match the official SDK:
-  `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`, `TYPESAFE_DEFAULT_MODEL`,
-  `TYPESAFE_TIMEOUT`. Retries 408/429/5xx and transport errors twice with
-  exponential backoff, honouring `Retry-After` / `retry-after-ms`; 422 detail
-  lists are rendered readably. Wire contract verified against `typesafe-sdk`
-  0.7.2; Snipe-IT endpoints verified against v8.7.2.
-- README: "Data Quality" feature section, an "Optional — TypeSafe Jev
-  data-quality tools" configuration section with a data-leaves-your-network
-  warning, cost/limit notes and how to read confidence bands.
+    together with an explicit `none`; verdicts `accept` (confidence ≥ 0.9),
+    `review`, `none`. A choice outside the offered options is reported as an
+    error, never as a match.
+  - Both tools are read-only with respect to Snipe-IT, report `backend`,
+    `model`, `calibrated`, `confidence_source`, `usage` and `elapsed_seconds`,
+    and stop submitting work when `JUDGMENT_TIME_BUDGET` (default 300 s) runs
+    out, listing skipped items in `errors`. Users are deliberately not
+    supported (personal data).
+- **Pluggable judgment backends** (`snipeit_mcp.judgment`, selected with
+  `JUDGMENT_BACKEND`), no new dependencies:
+  - `systemone` (default): the `POST /v1/systemone` protocol of TypeSafe Jev,
+    also served by self-hosted open-weight System One models (Laya, CLM,
+    Rapid-MLX, openjev). Calibrated probabilities. The `TYPESAFE_API_KEY`,
+    `TYPESAFE_BASE_URL`, `TYPESAFE_DEFAULT_MODEL` and `TYPESAFE_TIMEOUT`
+    variables of the official SDK are accepted as aliases, so a plain
+    `TYPESAFE_API_KEY` enables Jev. Wire contract verified against
+    `typesafe-sdk` 0.7.2.
+  - `openai`: any OpenAI-compatible `/chat/completions` server with JSON-schema
+    structured outputs (Ollama, vLLM, LM Studio, llama.cpp, OpenRouter,
+    OpenAI). Questions are rendered into a prompt with a strict response
+    schema; the reply is validated against the question definitions and
+    converted to the System One answer shapes. Confidence is the model's
+    self-reported value, or vote frequency across `JUDGMENT_SAMPLES` runs; both
+    are reported as `calibrated: false`.
+  - Shared HTTP plumbing: pooled `requests.Session` per backend, retries on
+    408/429/5xx and all transport errors (2 retries, exponential backoff,
+    `Retry-After` / `retry-after-ms` honoured), readable error messages for
+    401/404/422/429 with configuration hints.
+- Snipe-IT list pagination for the new tools terminates on the server-reported
+  total rather than on a short page, so instances with `MAX_RESULTS` below 500
+  are still fully scanned. Endpoints, transformer fields and the page cap
+  verified against Snipe-IT v8.7.2.
+- README: "Data Quality" feature section and an "Optional — judgment backend for
+  the data-quality tools" configuration section with a backend comparison
+  table, per-backend examples, a data-leaves-your-network warning, cost/limit
+  notes and how to read confidence bands and the `calibrated` flag.
 
 ## [1.9.0] - 2026-08-27
 

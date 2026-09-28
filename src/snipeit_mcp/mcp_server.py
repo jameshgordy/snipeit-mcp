@@ -138,27 +138,28 @@ def apply_tool_whitelist(allowed_csv: str | None = None) -> None:
 
 
 # ============================================================================
-# Optional tools (TypeSafe Jev)
+# Optional tools (judgment backend)
 # ============================================================================
-# These tools call the TypeSafe API and only make sense with TYPESAFE_API_KEY
-# set. They stay registered (importable, testable) but are hidden from clients
-# when the key is absent, so an unconfigured server presents the same tool set
+# These tools need a judgment backend (TypeSafe Jev, a self-hosted System One
+# model, or an OpenAI-compatible chat model — see snipeit_mcp.judgment). They
+# stay registered (importable, testable) but are hidden from clients when no
+# backend is configured, so an unconfigured server presents the same tool set
 # it always did.
 
-TYPESAFE_TOOLS: frozenset[str] = frozenset({"find_duplicates", "match_records"})
+JUDGMENT_TOOLS: frozenset[str] = frozenset({"find_duplicates", "match_records"})
 
 
 def apply_optional_tool_visibility() -> None:
-    """Hide the Jev-backed tools unless the TypeSafe integration is configured."""
-    from . import typesafe  # noqa: PLC0415 — keep import local
+    """Hide the judgment-backed tools unless a backend is configured."""
+    from . import judgment  # noqa: PLC0415 — keep import local
 
-    if typesafe.is_configured():
-        logger.info("TypeSafe Jev configured: data-quality tools %s enabled",
-                    sorted(TYPESAFE_TOOLS))
+    if judgment.is_configured():
+        logger.info("Judgment backend configured: data-quality tools %s enabled",
+                    sorted(JUDGMENT_TOOLS))
         return
-    mcp.disable(names=set(TYPESAFE_TOOLS), components={"tool"})
-    logger.info("TYPESAFE_API_KEY not set: data-quality tools %s hidden",
-                sorted(TYPESAFE_TOOLS))
+    mcp.disable(names=set(JUDGMENT_TOOLS), components={"tool"})
+    logger.info("No judgment backend (TYPESAFE_API_KEY / JUDGMENT_*): data-quality tools %s hidden",
+                sorted(JUDGMENT_TOOLS))
 
 
 apply_tool_whitelist()
