@@ -5,6 +5,42 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-09-28
+
+### Added
+- **Data-quality tools powered by TypeSafe Jev** (optional). Jev is a
+  judgment-only "System One" model that answers typed questions with calibrated
+  probabilities; the server uses it for bulk judgments over Snipe-IT reference
+  data that would otherwise cost the calling LLM many pages of context.
+  - `find_duplicates`: pairwise duplicate detection over manufacturers, models,
+    suppliers, locations, categories, companies or departments. Candidate pairs
+    are chosen in code (all pairs for small tables; token/prefix blocking with a
+    lexical-similarity threshold otherwise, capped by `max_pairs`), then Jev
+    scores each pair on a three-level entity-alignment rubric (different /
+    possibly the same / same) plus a name-variant probability. Returns
+    `duplicates`, `review` and `different_count` with score, confidence,
+    confidence band, both records (with item counts) and a per-type
+    `resolution_hint` for merging in Snipe-IT. Categories of different types
+    are never compared; models sharing a `model_number` are always compared.
+  - `match_records`: resolves free-text names to existing record ids. The
+    lexically closest records (default 50, max 254) are offered as options
+    together with an explicit `none`, and Jev picks one with per-option
+    probabilities. Verdicts: `accept` (confidence ≥ 0.9), `review`, `none`.
+  - Both tools are read-only with respect to Snipe-IT and are **hidden from
+    `tools/list` unless `TYPESAFE_API_KEY` is set** (`apply_optional_tool_visibility`
+    in `mcp_server.py`), so an unconfigured server presents the same 40 tools
+    as before. Users are deliberately not supported (personal data).
+- `snipeit_mcp.typesafe`: minimal `requests`-based client for
+  `POST /v1/systemone` (no new dependency). Env vars match the official SDK:
+  `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`, `TYPESAFE_DEFAULT_MODEL`,
+  `TYPESAFE_TIMEOUT`. Retries 408/429/5xx and transport errors twice with
+  exponential backoff, honouring `Retry-After` / `retry-after-ms`; 422 detail
+  lists are rendered readably. Wire contract verified against `typesafe-sdk`
+  0.7.2; Snipe-IT endpoints verified against v8.7.2.
+- README: "Data Quality" feature section, an "Optional — TypeSafe Jev
+  data-quality tools" configuration section with a data-leaves-your-network
+  warning, cost/limit notes and how to read confidence bands.
+
 ## [1.9.0] - 2026-08-27
 
 ### Added

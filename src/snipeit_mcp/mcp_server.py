@@ -132,5 +132,33 @@ def apply_tool_whitelist(allowed_csv: str | None = None) -> None:
         mcp.enable(components={"tool"})
         logger.info("All tools enabled (no whitelist configured)")
 
+    # Runs after either branch: the reset path above re-enables everything, so
+    # optional tools must be re-hidden here, not at import time.
+    apply_optional_tool_visibility()
+
+
+# ============================================================================
+# Optional tools (TypeSafe Jev)
+# ============================================================================
+# These tools call the TypeSafe API and only make sense with TYPESAFE_API_KEY
+# set. They stay registered (importable, testable) but are hidden from clients
+# when the key is absent, so an unconfigured server presents the same tool set
+# it always did.
+
+TYPESAFE_TOOLS: frozenset[str] = frozenset({"find_duplicates", "match_records"})
+
+
+def apply_optional_tool_visibility() -> None:
+    """Hide the Jev-backed tools unless the TypeSafe integration is configured."""
+    from . import typesafe  # noqa: PLC0415 — keep import local
+
+    if typesafe.is_configured():
+        logger.info("TypeSafe Jev configured: data-quality tools %s enabled",
+                    sorted(TYPESAFE_TOOLS))
+        return
+    mcp.disable(names=set(TYPESAFE_TOOLS), components={"tool"})
+    logger.info("TYPESAFE_API_KEY not set: data-quality tools %s hidden",
+                sorted(TYPESAFE_TOOLS))
+
 
 apply_tool_whitelist()

@@ -1,6 +1,6 @@
 # Snipe-IT MCP Server
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for managing [Snipe-IT](https://snipeitapp.com/) inventory systems. This server enables AI assistants to perform full CRUD operations across your entire Snipe-IT instance with **40 tools** covering all major API endpoints.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for managing [Snipe-IT](https://snipeitapp.com/) inventory systems. This server enables AI assistants to perform full CRUD operations across your entire Snipe-IT instance with **40 tools** covering all major API endpoints, plus **2 optional data-quality tools** powered by [TypeSafe Jev](https://typesafe.ai/) for duplicate detection and record matching.
 
 ## Features
 
@@ -51,6 +51,11 @@ A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
 - **Item Activity**: Get activity for specific items
 - **Status Summary**: Asset counts grouped by status label
 - **Audit Tracking**: Track assets due/overdue for audit
+
+### Data Quality (optional, powered by TypeSafe Jev)
+- **Duplicate Detection**: Find likely duplicate manufacturers, models, suppliers, locations, categories, companies, or departments — judged pairwise with calibrated confidence
+- **Record Matching**: Resolve free-text names (CSV cells, spoken descriptions) to existing record IDs, with an explicit "none" abstention
+- Enabled only when `TYPESAFE_API_KEY` is set; see [Optional — TypeSafe Jev data-quality tools](#optional--typesafe-jev-data-quality-tools)
 
 ### Import & System Administration
 - **CSV Imports**: Full import workflow (upload, map columns, process)
@@ -241,6 +246,64 @@ MetaMCP server entry (per person, Ownership: Private)
 > - Only OAuth mode (Mode B) provides cryptographically sound per-user
 >   attribution, and it does not fit centrally managed clients like
 >   MetaMCP.
+
+#### Optional — TypeSafe Jev data-quality tools
+
+[Jev](https://typesafe.ai/) is a *System One* model from TypeSafe AI: instead of
+generating text it answers typed questions (yes/no, pick-one, score) about a
+piece of data and returns calibrated probabilities, in well under a second and
+at a small fraction of LLM cost. The two data-quality tools use it for bulk
+judgments over Snipe-IT reference data that would otherwise cost the calling
+LLM many pages of context:
+
+- `find_duplicates` — "are these two manufacturers/models/suppliers/… the same
+  thing?" for every candidate pair in a table, returning a shortlist with
+  scores, confidence, both records (with item counts) and how to merge them.
+- `match_records` — "which existing model does `MacBook Pro 14 M3` refer to?"
+  for a list of free-text names, returning ids the agent can use directly in
+  create/update/import payloads, or `none`.
+
+The tools are **hidden from `tools/list` unless `TYPESAFE_API_KEY` is set**, so
+an unconfigured server presents exactly the 40 core tools. They work in every
+auth mode and are read-only with respect to Snipe-IT. Get a key at
+[console.typesafe.ai](https://console.typesafe.ai/keys).
+
+```env
+TYPESAFE_API_KEY=...                          # enables the two tools
+#TYPESAFE_BASE_URL=https://api.typesafe.ai    # default
+#TYPESAFE_DEFAULT_MODEL=jev-latest            # pin e.g. jev-1.13.0 once tuned
+#TYPESAFE_TIMEOUT=10                          # seconds per request
+```
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TYPESAFE_API_KEY` | To enable | TypeSafe API key. Absent → the two tools are hidden. |
+| `TYPESAFE_BASE_URL` | No | API base URL (default `https://api.typesafe.ai`) |
+| `TYPESAFE_DEFAULT_MODEL` | No | Model id or alias (default `jev-latest`). Aliases move with TypeSafe releases; pin a version after tuning thresholds. |
+| `TYPESAFE_TIMEOUT` | No | Per-request timeout in seconds (default `10`). Retries on 408/429/5xx follow the official SDK's policy (2 retries, exponential backoff, `Retry-After` honoured). |
+
+> [!WARNING]
+> **Data leaves your network.** The projected fields of the scanned records —
+> names, model numbers, addresses, and supplier/company contact URLs, emails and
+> phone numbers — are sent to the TypeSafe API. Users are deliberately **not**
+> supported by these tools because user records are personal data. Review
+> TypeSafe's [legal terms](https://docs.typesafe.ai/legal) (zero data retention
+> is an enterprise option) and, in multi-identity mode, restrict who may call
+> these tools with `SNIPEIT_IDENTITY_<KEY>_ALLOWED_TOOLS`.
+
+**Cost and limits.** Jev is priced per input token (about $0.04 per million at
+the time of writing); a pair comparison is a few hundred tokens, so a
+100-pair scan costs a fraction of a cent. `find_duplicates` compares every pair
+when the table is small (≤ `max_pairs` pairs) and otherwise pre-filters
+lexically similar pairs in code, so cost is bounded by `max_pairs` (default 100,
+max 500). `match_records` sends at most `candidates_per_text` records (default
+50, max 254) plus `none` per text. Both tools report `usage` token counts.
+
+**Reading the results.** Every judgment carries a `confidence` (0–1) and a
+`confidence_band`: `high` (≥ 0.9) is safe to act on, `medium` (0.5–0.9) should
+be confirmed by a person, `low` should not be acted on. `find_duplicates`
+separates `duplicates` (Jev says same), `review` (related, possibly the same)
+and `different_count`; treat `review` as a to-check list, never a to-merge list.
 
 ## Production Deployment
 
@@ -476,7 +539,7 @@ Then in the Inspector UI:
 > common misconfiguration; those credentials belong only in the server's
 > `.env`, not in any MCP client.
 
-## Available Tools (40 Total)
+## Available Tools (40 core + 2 optional)
 
 ### Asset Tools (8)
 
@@ -558,6 +621,13 @@ Then in the Inspector UI:
 | Tool | Description |
 |------|-------------|
 | `manage_imports` | CSV import workflow (upload, map columns, process) |
+
+### Data Quality Tools (2, optional — require `TYPESAFE_API_KEY`)
+
+| Tool | Description |
+|------|-------------|
+| `find_duplicates` | Find likely duplicate manufacturers, models, suppliers, locations, categories, companies or departments; pairwise Jev judgments with score, confidence, both records and a merge hint |
+| `match_records` | Resolve free-text names to existing record ids (or `none`) with per-option probabilities — for import prep and natural-language asset creation |
 
 ### System Administration Tools (4)
 
@@ -715,13 +785,14 @@ All list endpoints return pagination metadata:
 src/snipeit_mcp/
 ├── __init__.py        # Public API re-exports
 ├── __main__.py        # Entry point (snipeit-mcp script)
-├── mcp_server.py      # FastMCP instance + tool whitelist
+├── mcp_server.py      # FastMCP instance + tool whitelist + optional-tool visibility
 ├── client.py          # SnipeIT API clients
+├── typesafe.py        # TypeSafe Jev client (optional judgment backend)
 ├── config.py          # Transport + auth-mode config (OAuth / API key / multi-identity)
 ├── identity.py        # Multi-identity registry (tokens → PATs), ContextVar, validation
 ├── http_auth.py       # Multi-identity HTTP auth (401, /healthz) + audit log + tool policy
 ├── schemas.py         # Pydantic input schemas
-└── tools/             # 10 modules grouped by Snipe-IT domain
+└── tools/             # 11 modules grouped by Snipe-IT domain
     ├── assets.py
     ├── inventory.py
     ├── foundational.py
@@ -730,13 +801,15 @@ src/snipeit_mcp/
     ├── custom_fields.py
     ├── reports.py
     ├── imports.py
-    └── system.py
+    ├── system.py
+    └── data_quality.py   # find_duplicates / match_records (TypeSafe Jev)
 ```
 
 Built with:
 - **[FastMCP](https://gofastmcp.com)**: Python framework for MCP servers
 - **[snipeit-python-api](https://github.com/lfctech/snipeit-python-api)**: Snipe-IT API client
 - **[Pydantic](https://docs.pydantic.dev)**: Data validation and type safety
+- **[TypeSafe Jev](https://docs.typesafe.ai/)** (optional): System One judgment model behind the data-quality tools
 
 ## Troubleshooting
 
