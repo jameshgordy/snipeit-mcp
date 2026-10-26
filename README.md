@@ -557,7 +557,7 @@ Then in the Inspector UI:
 
 | Tool | Description |
 |------|-------------|
-| `manage_imports` | CSV import workflow (upload, map columns, process) |
+| `manage_imports` | CSV import workflow (upload, then process with type and column mapping) |
 
 ### System Administration Tools (4)
 

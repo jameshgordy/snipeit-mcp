@@ -5,6 +5,32 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.3] - 2026-10-26
+
+### Fixed
+`manage_imports` brought in line with Snipe-IT v8.8.1, whose `ImportController`
+has only `index`, `store`, `process` and `destroy`.
+- `list` crashed with `'list' object has no attribute 'get'`: the index returns
+  a bare JSON array, not `{rows: [...]}`.
+- `get` called `GET imports/{id}`, which is routed but has no controller method
+  (HTTP 500). It now picks the import out of the list, which already carries
+  the header row, first row and saved mapping.
+- `process` sent no body, so Snipe-IT rejected it ("The import-type field is
+  required"). It now takes `import_data` and sends `import-type`,
+  `column-mappings`, `run-backup`, `import-update`, `import-preserve-blanks`
+  and `send-welcome`. Row errors (HTTP 500 `{"status": "import-errors"}`) are
+  reported with Snipe-IT's messages and tally instead of a bare "500 Server Error".
+
+### Removed
+- `manage_imports` `update`: `PATCH imports/{id}` has no controller method
+  (HTTP 500). Snipe-IT saves the column mapping when the import is processed,
+  so pass `import_data` to `process` instead.
+
+### Changed
+- `ImportData.import_type` accepts every v8.8.1 importer (adds `assetHistory`,
+  `assetModel`, `supplier`, `manufacturer`, `category`); new `update_existing`,
+  `preserve_blanks` and `send_welcome` options.
+
 ## [1.9.2] - 2026-10-26
 
 ### Fixed
@@ -257,6 +283,7 @@ files through `{type}/{id}/files` (`UploadedFilesController`).
 - UV package manager support
 - Stdio transport for MCP communication
 
+[1.9.3]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.3
 [1.9.2]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.2
 [1.9.1]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.1
 [1.8.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.8

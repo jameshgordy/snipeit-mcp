@@ -3,6 +3,7 @@
 import logging
 from typing import Annotated, Any, Literal
 
+import requests
 from pydantic import Field
 from snipeit.exceptions import (
     SnipeITAuthenticationError,
@@ -27,24 +28,29 @@ logger = logging.getLogger(__name__)
 )
 def manage_imports(
     action: Annotated[
-        Literal["list", "get", "upload", "update", "delete", "process"],
+        Literal["list", "get", "upload", "delete", "process"],
         "The import action to perform"
     ],
-    import_id: Annotated[int | None, "Import file ID (required for get, update, delete, process)"] = None,
+    import_id: Annotated[int | None, "Import file ID (required for get, delete, process)"] = None,
     file_path: Annotated[str | None, "Path to CSV file (required for upload action)"] = None,
-    import_data: Annotated[ImportData | None, "Import configuration (for update action)"] = None,
+    import_data: Annotated[
+        ImportData | None,
+        "Import type, column mapping and options (process action; import_type is required)",
+    ] = None,
 ) -> dict[str, Any]:
     """Manage CSV import operations for bulk data import.
 
-    The import workflow is: upload → update mappings → process
+    The import workflow is: upload → process (with import_type and field_map).
+    Snipe-IT saves the column mapping when the import is processed; there is
+    no separate step to store it.
 
     Operations:
-    - list: List all import files
-    - get: Get import file details including column mappings
+    - list: List all import files (with header row, first row and saved mapping)
+    - get: Get one import file's details (taken from the list; Snipe-IT has no
+      single-import endpoint)
     - upload: Upload a CSV file for import
-    - update: Update import column mappings and settings
     - delete: Delete an import file
-    - process: Execute the import
+    - process: Execute the import with import_data
 
     Common field mappings for assets:
     - asset_tag, name, serial, model_id, status_id
@@ -59,8 +65,8 @@ def manage_imports(
         api = _client.get_direct_api()
 
         if action == "list":
-            result = api._request("GET", "imports")
-            imports = result.get("rows", [])
+            # ImportController::index returns a bare JSON array, not {rows: [...]}.
+            imports = api._request("GET", "imports")
 
             return {
                 "success": True,
@@ -73,12 +79,17 @@ def manage_imports(
             if not import_id:
                 return {"success": False, "error": "import_id is required for get action"}
 
-            result = api._request("GET", f"imports/{import_id}")
+            # GET imports/{id} is routed but ImportController has no show()
+            # (HTTP 500), so pick the import out of the index.
+            imports = api._request("GET", "imports")
+            match = next((i for i in imports if i.get("id") == import_id), None)
+            if match is None:
+                return {"success": False, "error": f"Not found: import {import_id}"}
 
             return {
                 "success": True,
                 "action": "get",
-                "import": result
+                "import": match
             }
 
         elif action == "upload":
@@ -101,22 +112,6 @@ def manage_imports(
                 "import": result
             }
 
-        elif action == "update":
-            if not import_id:
-                return {"success": False, "error": "import_id is required for update action"}
-            if not import_data:
-                return {"success": False, "error": "import_data is required for update action"}
-
-            update_payload = {k: v for k, v in import_data.model_dump().items() if v is not None}
-            result = api._request("PATCH", f"imports/{import_id}", json=update_payload)
-
-            return {
-                "success": True,
-                "action": "update",
-                "import_id": import_id,
-                "result": result
-            }
-
         elif action == "delete":
             if not import_id:
                 return {"success": False, "error": "import_id is required for delete action"}
@@ -134,7 +129,35 @@ def manage_imports(
             if not import_id:
                 return {"success": False, "error": "import_id is required for process action"}
 
-            result = api._request("POST", f"imports/process/{import_id}")
+            if not import_data or not import_data.import_type:
+                return {"success": False, "error": "import_data.import_type is required for process action"}
+
+            # Field names from ItemImportRequest / ImportController::process.
+            payload = {
+                "import-type": import_data.import_type,
+                "column-mappings": import_data.field_map,
+                "run-backup": import_data.run_backup,
+                "import-update": import_data.update_existing,
+                "import-preserve-blanks": import_data.preserve_blanks,
+                "send-welcome": import_data.send_welcome,
+            }
+            payload = {k: v for k, v in payload.items() if v is not None}
+            try:
+                result = api._request("POST", f"imports/process/{import_id}", json=payload)
+            except requests.HTTPError as e:
+                # Row errors come back as HTTP 500 {"status": "import-errors"},
+                # a concurrent run as 409 {"status": "error"}.
+                try:
+                    body = e.response.json()
+                except ValueError:
+                    raise e from None
+                return {
+                    "success": False,
+                    "action": "process",
+                    "import_id": import_id,
+                    "error": f"Import failed: {body.get('messages')}",
+                    "tally": (body.get("payload") or {}).get("tally"),
+                }
 
             return {
                 "success": True,
