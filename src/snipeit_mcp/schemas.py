@@ -321,15 +321,27 @@ class FieldsetData(BaseModel):
 
 
 class ImportData(BaseModel):
-    """Model for import configuration."""
-    import_type: Literal["asset", "accessory", "consumable", "component", "license", "user", "location"] | None = Field(
-        None, description="Type of data being imported"
+    """Model for import processing options (sent with the process action)."""
+    import_type: Literal[
+        "asset", "assetHistory", "assetModel", "accessory", "consumable", "component",
+        "license", "user", "location", "supplier", "manufacturer", "category",
+    ] | None = Field(
+        None, description="Type of data being imported (required to process)"
     )
     field_map: dict | None = Field(
         None, description="Maps CSV column names to Snipe-IT field names"
     )
     run_backup: bool | None = Field(
         None, description="Whether to backup database before import"
+    )
+    update_existing: bool | None = Field(
+        None, description="Update existing records that match instead of skipping them"
+    )
+    preserve_blanks: bool | None = Field(
+        None, description="When updating, keep existing values where the CSV cell is blank"
+    )
+    send_welcome: bool | None = Field(
+        None, description="Send welcome emails to imported users"
     )
 
 
