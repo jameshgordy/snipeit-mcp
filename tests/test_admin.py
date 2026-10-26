@@ -126,6 +126,7 @@ class TestModelFiles:
         mock_direct_api._request.return_value = {}
         result = get_tool_fn(model_files)(action="delete", model_id=1, file_id=5)
         assert result["success"] is True
+        mock_direct_api._request.assert_called_once_with("DELETE", "models/1/files/5/delete")
 
     def test_delete_missing_file_id(self, mock_direct_api):
         from snipeit_mcp import model_files

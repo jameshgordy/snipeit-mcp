@@ -3,7 +3,6 @@
 import logging
 from typing import Annotated, Any, Literal
 
-import requests
 from pydantic import Field
 from snipeit.exceptions import (
     SnipeITAuthenticationError,
@@ -91,16 +90,9 @@ def manage_imports(
                 return {"success": False, "error": f"File not found: {file_path}"}
 
             filename = os.path.basename(file_path)
-            with open(file_path, "rb") as f:
-                files = {"file": (filename, f, "text/csv")}
-                url = f"{api.base_url}/api/v1/imports"
-                headers = {
-                    "Authorization": api.headers["Authorization"],
-                    "Accept": "application/json",
-                }
-                response = requests.post(url, headers=headers, files=files)
-                response.raise_for_status()
-                result = response.json()
+            # ImportController::store loops over files[]; a single "file"
+            # field gets a 422 "no files".
+            result = api.upload_files("imports", [file_path], field="files[]")
 
             return {
                 "success": True,

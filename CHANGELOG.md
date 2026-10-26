@@ -5,6 +5,30 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.2] - 2026-10-26
+
+### Fixed
+File tools brought in line with Snipe-IT v8.8.1, which routes every object's
+files through `{type}/{id}/files` (`UploadedFilesController`).
+- `model_files` `upload` sent a single `file` field. The controller loops over
+  `file[]`, so nothing was attached, yet the tool reported success because it
+  never checked Snipe-IT's HTTP 200 `{"status": "error"}`. It now uses
+  `SnipeITDirectAPI.upload_files`. `delete` now calls
+  `DELETE models/{id}/files/{file_id}/delete` (the `/delete` was missing).
+- `license_files` called `licenses/{id}/upload` and `licenses/{id}/uploads[/{file_id}]`,
+  which v8.8.1 does not route. Upload, list, download and delete now use
+  `licenses/{id}/files`, `.../files/{file_id}` and `.../files/{file_id}/delete`.
+- `manage_imports` `upload` sent `file`. `ImportController::store` loops over
+  `files[]`, so Snipe-IT answered 422 "no files". It now sends `files[]`.
+- `model_files` / `license_files` `list` returned `notes: null` for every file;
+  the API field is `note`.
+- `model_files` / `license_files` `download` saved Snipe-IT's JSON error body
+  (HTTP 200 `{"status": "error"}`) as the downloaded file. The new
+  `SnipeITDirectAPI.download_file` raises on it instead.
+
+### Changed
+- `SnipeITDirectAPI.upload_files` takes a `field` argument (default `file[]`).
+
 ## [1.9.1] - 2026-10-26
 
 ### Fixed
@@ -233,6 +257,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UV package manager support
 - Stdio transport for MCP communication
 
+[1.9.2]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.2
 [1.9.1]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.1
 [1.8.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.8
 [1.7.1]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.7.1
