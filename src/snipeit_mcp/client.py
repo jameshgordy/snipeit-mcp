@@ -181,8 +181,12 @@ class SnipeITDirectAPI:
         return self._request("DELETE", f"{endpoint}/{resource_id}")
 
     def upload_files(self, endpoint: str, paths: list[str],
-                     notes: str | None = None) -> dict:
-        """POST files as multipart ``file[]`` fields (Snipe-IT's ``{type}/{id}/files``).
+                     notes: str | None = None, field: str = "file[]") -> dict:
+        """POST files as multipart ``field`` entries.
+
+        Snipe-IT's ``{type}/{id}/files`` routes loop over ``file[]``; the
+        imports route loops over ``files[]``. A single non-array field is
+        silently ignored (HTTP 200 ``{"status": "error"}``, nothing attached).
 
         The JSON ``Content-Type`` header must not be sent here: it replaces the
         multipart boundary and Snipe-IT rejects the body with "Invalid JSON".
@@ -193,11 +197,36 @@ class SnipeITDirectAPI:
         data = {"notes": notes} if notes is not None else {}
         with ExitStack() as stack:
             files = [
-                ("file[]", (os.path.basename(p), stack.enter_context(open(p, "rb"))))
+                (field, (os.path.basename(p), stack.enter_context(open(p, "rb"))))
                 for p in paths
             ]
             return self._request("POST", endpoint, headers=headers,
                                  files=files, data=data)
+
+    def download_file(self, endpoint: str, save_path: str) -> str:
+        """GET a stored file (``{type}/{id}/files/{file_id}``) and save it.
+
+        Snipe-IT answers a missing file or object with HTTP 200 and a JSON
+        ``{"status": "error"}`` body; raise on that instead of saving the JSON
+        as the file.
+        """
+        url = f"{self.base_url}/api/v1/{endpoint}"
+        headers = {"Authorization": self.headers["Authorization"],
+                   "Accept": "application/octet-stream"}
+        response = requests.get(url, headers=headers)
+        if response.status_code == 404:
+            raise SnipeITNotFoundError(f"Resource not found: {endpoint}")
+        if response.status_code == 401:
+            raise SnipeITAuthenticationError("Authentication failed")
+        response.raise_for_status()
+        if response.headers.get("Content-Type", "").startswith("application/json"):
+            data = response.json()
+            if isinstance(data, dict) and data.get("status") == "error":
+                raise SnipeITException(str(data.get("messages") or "Unknown API error"))
+        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+        with open(save_path, "wb") as f:
+            f.write(response.content)
+        return save_path
 
 
 def get_direct_api() -> SnipeITDirectAPI:

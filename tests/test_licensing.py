@@ -121,6 +121,7 @@ class TestLicenseFiles:
         mock_direct_api._request.return_value = {"rows": []}
         result = get_tool_fn(license_files)(action="list", license_id=1)
         assert result["success"] is True
+        mock_direct_api._request.assert_called_once_with("GET", "licenses/1/files")
 
     def test_upload_missing_path(self, mock_direct_api):
         from snipeit_mcp import license_files
@@ -142,6 +143,7 @@ class TestLicenseFiles:
         mock_direct_api._request.return_value = {}
         result = get_tool_fn(license_files)(action="delete", license_id=1, file_id=5)
         assert result["success"] is True
+        mock_direct_api._request.assert_called_once_with("DELETE", "licenses/1/files/5/delete")
 
     def test_delete_missing_file_id(self, mock_direct_api):
         from snipeit_mcp import license_files

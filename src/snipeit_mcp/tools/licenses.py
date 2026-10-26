@@ -3,7 +3,6 @@
 import logging
 from typing import Annotated, Any, Literal
 
-import requests
 from pydantic import Field
 from snipeit.exceptions import (
     SnipeITAuthenticationError,
@@ -336,17 +335,9 @@ def license_files(
                 return {"success": False, "error": f"File not found: {file_path}"}
 
             filename = os.path.basename(file_path)
-            with open(file_path, "rb") as f:
-                files = {"file": (filename, f)}
-                # Use a separate request without JSON content type for file upload
-                url = f"{api.base_url}/api/v1/licenses/{license_id}/upload"
-                headers = {
-                    "Authorization": api.headers["Authorization"],
-                    "Accept": "application/json",
-                }
-                response = requests.post(url, headers=headers, files=files)
-                response.raise_for_status()
-                result = response.json()
+            # Snipe-IT's {type}/{id}/files route loops over file[]; a single
+            # "file" field attaches nothing and answers HTTP 200 status=error.
+            result = api.upload_files(f"licenses/{license_id}/files", [file_path])
 
             return {
                 "success": True,
@@ -357,7 +348,7 @@ def license_files(
             }
 
         elif action == "list":
-            result = api._request("GET", f"licenses/{license_id}/uploads")
+            result = api._request("GET", f"licenses/{license_id}/files")
             files = result.get("rows", [])
 
             files_list = [
@@ -366,7 +357,7 @@ def license_files(
                     "filename": f.get("filename"),
                     "url": f.get("url"),
                     "created_at": f.get("created_at"),
-                    "notes": f.get("notes"),
+                    "notes": f.get("note"),
                 }
                 for f in files
             ]
@@ -385,20 +376,7 @@ def license_files(
             if not save_path:
                 return {"success": False, "error": "save_path is required for download action"}
 
-            # Get the file download URL and download
-            url = f"{api.base_url}/api/v1/licenses/{license_id}/uploads/{file_id}"
-            headers = {
-                "Authorization": api.headers["Authorization"],
-                "Accept": "application/octet-stream",
-            }
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-
-            # Save the file
-            import os
-            os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-            with open(save_path, "wb") as f:
-                f.write(response.content)
+            api.download_file(f"licenses/{license_id}/files/{file_id}", save_path)
 
             return {
                 "success": True,
@@ -413,7 +391,7 @@ def license_files(
             if file_id is None:
                 return {"success": False, "error": "file_id is required for delete action"}
 
-            api._request("DELETE", f"licenses/{license_id}/uploads/{file_id}")
+            api._request("DELETE", f"licenses/{license_id}/files/{file_id}/delete")
 
             return {
                 "success": True,

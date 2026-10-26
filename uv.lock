@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "snipeit-mcp"
-version = "1.9.1"
+version = "1.9.2"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },

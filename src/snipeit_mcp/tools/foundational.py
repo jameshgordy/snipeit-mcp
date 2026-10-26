@@ -3,7 +3,6 @@
 import logging
 from typing import Annotated, Any, Literal
 
-import requests
 from pydantic import Field
 from snipeit.exceptions import (
     SnipeITAuthenticationError,
@@ -1240,16 +1239,9 @@ def model_files(
                 return {"success": False, "error": f"File not found: {file_path}"}
 
             filename = os.path.basename(file_path)
-            with open(file_path, "rb") as f:
-                files = {"file": (filename, f)}
-                url = f"{api.base_url}/api/v1/models/{model_id}/files"
-                headers = {
-                    "Authorization": api.headers["Authorization"],
-                    "Accept": "application/json",
-                }
-                response = requests.post(url, headers=headers, files=files)
-                response.raise_for_status()
-                result = response.json()
+            # Snipe-IT's {type}/{id}/files route loops over file[]; a single
+            # "file" field attaches nothing and answers HTTP 200 status=error.
+            result = api.upload_files(f"models/{model_id}/files", [file_path])
 
             return {
                 "success": True,
@@ -1269,7 +1261,7 @@ def model_files(
                     "filename": f.get("filename"),
                     "url": f.get("url"),
                     "created_at": f.get("created_at"),
-                    "notes": f.get("notes"),
+                    "notes": f.get("note"),
                 }
                 for f in files
             ]
@@ -1288,18 +1280,7 @@ def model_files(
             if not save_path:
                 return {"success": False, "error": "save_path is required for download action"}
 
-            url = f"{api.base_url}/api/v1/models/{model_id}/files/{file_id}"
-            headers = {
-                "Authorization": api.headers["Authorization"],
-                "Accept": "application/octet-stream",
-            }
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-
-            import os
-            os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-            with open(save_path, "wb") as f:
-                f.write(response.content)
+            api.download_file(f"models/{model_id}/files/{file_id}", save_path)
 
             return {
                 "success": True,
@@ -1314,7 +1295,7 @@ def model_files(
             if file_id is None:
                 return {"success": False, "error": "file_id is required for delete action"}
 
-            api._request("DELETE", f"models/{model_id}/files/{file_id}")
+            api._request("DELETE", f"models/{model_id}/files/{file_id}/delete")
 
             return {
                 "success": True,
