@@ -5,18 +5,28 @@ def get_tool_fn(tool):
 
 class TestManageImports:
     def test_list(self, mock_direct_api):
+        """ImportController::index returns a bare array, not {rows: [...]}."""
         from snipeit_mcp import manage_imports
-        mock_direct_api._request.return_value = {"rows": [{"id": 1, "filename": "assets.csv"}, {"id": 2, "filename": "users.csv"}]}
+        mock_direct_api._request.return_value = [{"id": 1, "file_path": "assets.csv"}, {"id": 2, "file_path": "users.csv"}]
         result = get_tool_fn(manage_imports)(action="list")
         assert result["success"] is True
         assert result["count"] == 2
+        mock_direct_api._request.assert_called_with("GET", "imports")
 
-    def test_get(self, mock_direct_api):
+    def test_get_picks_from_list(self, mock_direct_api):
         from snipeit_mcp import manage_imports
-        mock_direct_api._request.return_value = {"id": 1, "filename": "assets.csv"}
-        result = get_tool_fn(manage_imports)(action="get", import_id=1)
+        mock_direct_api._request.return_value = [{"id": 1, "file_path": "a.csv"}, {"id": 2, "file_path": "b.csv"}]
+        result = get_tool_fn(manage_imports)(action="get", import_id=2)
         assert result["success"] is True
-        mock_direct_api._request.assert_called_with("GET", "imports/1")
+        assert result["import"] == {"id": 2, "file_path": "b.csv"}
+        mock_direct_api._request.assert_called_with("GET", "imports")
+
+    def test_get_unknown_id(self, mock_direct_api):
+        from snipeit_mcp import manage_imports
+        mock_direct_api._request.return_value = [{"id": 1}]
+        result = get_tool_fn(manage_imports)(action="get", import_id=9)
+        assert result["success"] is False
+        assert "9" in result["error"]
 
     def test_get_missing_id(self):
         from snipeit_mcp import manage_imports
@@ -30,22 +40,21 @@ class TestManageImports:
         assert result["success"] is False
         assert "file_path" in result["error"]
 
-    def test_update(self, mock_direct_api):
-        from snipeit_mcp import manage_imports, ImportData
-        mock_direct_api._request.return_value = {"status": "success"}
-        result = get_tool_fn(manage_imports)(action="update", import_id=1, import_data=ImportData(import_type="asset"))
-        assert result["success"] is True
-
-    def test_update_missing_id(self):
-        from snipeit_mcp import manage_imports, ImportData
-        result = get_tool_fn(manage_imports)(action="update", import_data=ImportData(import_type="asset"))
-        assert result["success"] is False
+    def test_update_action_removed(self):
+        """v8.8.1 has no ImportController::update; mapping goes with process."""
+        import typing
+        from snipeit_mcp import manage_imports
+        hints = typing.get_type_hints(get_tool_fn(manage_imports), include_extras=True)
+        actions = typing.get_args(typing.get_args(hints["action"])[0])
+        assert "update" not in actions
+        assert "process" in actions
 
     def test_delete(self, mock_direct_api):
         from snipeit_mcp import manage_imports
         mock_direct_api._request.return_value = {}
         result = get_tool_fn(manage_imports)(action="delete", import_id=1)
         assert result["success"] is True
+        mock_direct_api._request.assert_called_with("DELETE", "imports/1")
 
     def test_delete_missing_id(self):
         from snipeit_mcp import manage_imports
@@ -53,10 +62,28 @@ class TestManageImports:
         assert result["success"] is False
 
     def test_process(self, mock_direct_api):
-        from snipeit_mcp import manage_imports
+        from snipeit_mcp import manage_imports, ImportData
         mock_direct_api._request.return_value = {"status": "success"}
-        result = get_tool_fn(manage_imports)(action="process", import_id=1)
+        result = get_tool_fn(manage_imports)(
+            action="process", import_id=1,
+            import_data=ImportData(import_type="asset", field_map={"Tag": "asset_tag"},
+                                   run_backup=False, update_existing=True),
+        )
         assert result["success"] is True
+        mock_direct_api._request.assert_called_with(
+            "POST", "imports/process/1",
+            json={"import-type": "asset", "column-mappings": {"Tag": "asset_tag"},
+                  "run-backup": False, "import-update": True},
+        )
+
+    def test_process_requires_import_type(self, mock_direct_api):
+        from snipeit_mcp import manage_imports, ImportData
+        result = get_tool_fn(manage_imports)(action="process", import_id=1)
+        assert result["success"] is False
+        assert "import_type" in result["error"]
+        result = get_tool_fn(manage_imports)(action="process", import_id=1, import_data=ImportData(run_backup=True))
+        assert result["success"] is False
+        mock_direct_api._request.assert_not_called()
 
     def test_process_missing_id(self):
         from snipeit_mcp import manage_imports
