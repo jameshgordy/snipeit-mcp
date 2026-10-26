@@ -23,6 +23,7 @@ truth — there is no shared client state to invalidate.
 from __future__ import annotations
 
 import os
+from contextlib import ExitStack
 
 import requests
 from snipeit import SnipeIT
@@ -111,10 +112,11 @@ class SnipeITDirectAPI:
             "Accept": "application/json",
         }
 
-    def _request(self, method: str, endpoint: str, **kwargs) -> dict:
+    def _request(self, method: str, endpoint: str, headers: dict | None = None,
+                 **kwargs) -> dict:
         """Make an API request and handle errors."""
         url = f"{self.base_url}/api/v1/{endpoint}"
-        response = requests.request(method, url, headers=self.headers, **kwargs)
+        response = requests.request(method, url, headers=headers or self.headers, **kwargs)
 
         if response.status_code == 404:
             raise SnipeITNotFoundError(f"Resource not found: {endpoint}")
@@ -177,6 +179,25 @@ class SnipeITDirectAPI:
     def delete(self, endpoint: str, resource_id: int) -> dict:
         """Delete a resource."""
         return self._request("DELETE", f"{endpoint}/{resource_id}")
+
+    def upload_files(self, endpoint: str, paths: list[str],
+                     notes: str | None = None) -> dict:
+        """POST files as multipart ``file[]`` fields (Snipe-IT's ``{type}/{id}/files``).
+
+        The JSON ``Content-Type`` header must not be sent here: it replaces the
+        multipart boundary and Snipe-IT rejects the body with "Invalid JSON".
+        (The snipeit-api SDK's ``assets.upload_files`` has exactly that bug —
+        its session carries a default JSON content type.)
+        """
+        headers = {k: v for k, v in self.headers.items() if k != "Content-Type"}
+        data = {"notes": notes} if notes is not None else {}
+        with ExitStack() as stack:
+            files = [
+                ("file[]", (os.path.basename(p), stack.enter_context(open(p, "rb"))))
+                for p in paths
+            ]
+            return self._request("POST", endpoint, headers=headers,
+                                 files=files, data=data)
 
 
 def get_direct_api() -> SnipeITDirectAPI:

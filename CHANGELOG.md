@@ -5,6 +5,17 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2026-10-26
+
+### Fixed
+- `asset_files` `upload` failed every time with "Snipe-IT error: Invalid JSON"
+  and attached nothing. The snipeit-api SDK's `assets.upload_files` posts
+  multipart through a session whose default `Content-Type: application/json`
+  replaces the multipart boundary. Uploads now go through the new
+  `SnipeITDirectAPI.upload_files`, which sends `file[]` multipart fields to
+  `POST /api/v1/hardware/{id}/files` without the JSON content type and raises
+  on Snipe-IT's HTTP 200 `{"status": "error"}` replies like `_request` does.
+
 ## [1.9.0] - 2026-08-27
 
 ### Added
@@ -222,6 +233,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UV package manager support
 - Stdio transport for MCP communication
 
+[1.9.1]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.1
 [1.8.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.8
 [1.7.1]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.7.1
 [1.7.0]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.7
