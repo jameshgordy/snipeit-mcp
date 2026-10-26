@@ -232,12 +232,64 @@ class TestAssetOperations:
         assert result["action"] == "restore"
 
 class TestAssetFiles:
-    def test_upload(self, mock_client):
+    def test_upload(self, mock_client, mock_direct_api):
         from snipeit_mcp import asset_files
-        mock_client.assets.upload_files.return_value = {"status": "success"}
-        result = get_tool_fn(asset_files)(action="upload", asset_id=1, file_paths=["/tmp/test.pdf"])
+        mock_direct_api.upload_files.return_value = {"status": "success"}
+        result = get_tool_fn(asset_files)(
+            action="upload", asset_id=1, file_paths=["/tmp/test.pdf"], notes="sold"
+        )
         assert result["success"] is True
         assert result["action"] == "upload"
+        mock_direct_api.upload_files.assert_called_once_with(
+            "hardware/1/files", ["/tmp/test.pdf"], "sold"
+        )
+        mock_client.assets.upload_files.assert_not_called()
+
+    def test_upload_sends_multipart_file_array(self, mock_client, tmp_path):
+        """End-to-end through the real SnipeITDirectAPI, mocking only HTTP.
+
+        Regression: the SDK posted with ``Content-Type: application/json`` and
+        Snipe-IT answered "Invalid JSON", attaching nothing.
+        """
+        import responses
+        from snipeit_mcp import asset_files
+
+        a = tmp_path / "a.jpg"
+        a.write_bytes(b"jpeg-a")
+        b = tmp_path / "b.jpg"
+        b.write_bytes(b"jpeg-b")
+        url = "https://test.snipeit.com/api/v1/hardware/7/files"
+
+        with responses.RequestsMock() as rsps:
+            rsps.add(responses.POST, url, json={"status": "success", "payload": {}})
+            result = get_tool_fn(asset_files)(
+                action="upload", asset_id=7, file_paths=[str(a), str(b)], notes="sale photos"
+            )
+            request = rsps.calls[0].request
+
+        assert result["success"] is True
+        assert request.url == url
+        assert request.headers["Authorization"] == "Bearer test-token-12345"
+        assert request.headers["Content-Type"].startswith("multipart/form-data; boundary=")
+        body = request.body
+        assert body.count(b'name="file[]"') == 2
+        assert b'filename="a.jpg"' in body and b"jpeg-a" in body
+        assert b'filename="b.jpg"' in body and b"jpeg-b" in body
+        assert b'name="notes"' in body and b"sale photos" in body
+
+    def test_upload_status_error_is_failure(self, mock_client, tmp_path):
+        import responses
+        from snipeit_mcp import asset_files
+
+        f = tmp_path / "a.jpg"
+        f.write_bytes(b"x")
+        with responses.RequestsMock() as rsps:
+            rsps.add(responses.POST, "https://test.snipeit.com/api/v1/hardware/7/files",
+                     json={"status": "error", "messages": "No files were submitted"})
+            result = get_tool_fn(asset_files)(action="upload", asset_id=7, file_paths=[str(f)])
+
+        assert result["success"] is False
+        assert "No files were submitted" in result["error"]
 
     def test_upload_missing_paths(self, mock_client):
         from snipeit_mcp import asset_files

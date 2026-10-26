@@ -477,7 +477,11 @@ def asset_files(
                 if not file_paths:
                     return {"success": False, "error": "file_paths is required for upload action"}
                 
-                result = client.assets.upload_files(asset_id, file_paths, notes)
+                # Not client.assets.upload_files: the SDK posts multipart with
+                # its JSON Content-Type header and Snipe-IT answers "Invalid JSON".
+                result = _client.get_direct_api().upload_files(
+                    f"hardware/{asset_id}/files", file_paths, notes
+                )
                 
                 return {
                     "success": True,
