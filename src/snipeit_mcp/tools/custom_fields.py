@@ -312,7 +312,7 @@ def manage_fieldsets(
             if not fieldset_id:
                 return {"success": False, "error": "fieldset_id is required for fields action"}
 
-            result = api._request("GET", f"fieldsets/{fieldset_id}/fields")
+            result = api._request("POST", f"fieldsets/{fieldset_id}/fields")
             fields = result.get("rows", []) if isinstance(result, dict) else result
 
             return {

@@ -120,6 +120,10 @@ class TestManageFieldsets:
         result = get_tool_fn(manage_fieldsets)(action="fields", fieldset_id=1)
         assert result["success"] is True
         assert result["action"] == "fields"
+        assert result["fields"] == [{"id": 1, "name": "MAC"}]
+        # Snipe-IT routes fieldsets/{id}/fields as POST only (routes/api.php,
+        # api.fieldsets.fields); GET is a 404. See issue #32.
+        mock_direct_api._request.assert_called_with("POST", "fieldsets/1/fields")
 
     def test_fields_missing_id(self, mock_direct_api):
         from snipeit_mcp import manage_fieldsets
