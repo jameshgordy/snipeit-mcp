@@ -5,6 +5,15 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.4] - 2026-11-07
+
+### Fixed
+- `manage_fieldsets` `fields` called `GET fieldsets/{id}/fields`, which Snipe-IT
+  does not route (HTTP 404 "Resource not found"). `routes/api.php` registers
+  `api.fieldsets.fields` as POST only, so the tool now sends
+  `POST fieldsets/{id}/fields`. Verified against v8.8.3; the route was GET in
+  v5 and has been POST since v6.0.0. Reported in #32.
+
 ## [1.9.3] - 2026-10-26
 
 ### Fixed
