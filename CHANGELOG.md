@@ -5,6 +5,14 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.5] - 2026-11-13
+
+### Added
+- `LICENSE` file with the MIT licence text. The project has declared MIT in
+  `pyproject.toml` and the README since 0.2.0, but without the file GitHub
+  reported no licence and the package could not be redistributed. Requested
+  in #34.
+
 ## [1.9.4] - 2026-11-07
 
 ### Fixed
@@ -292,6 +300,8 @@ files through `{type}/{id}/files` (`UploadedFilesController`).
 - UV package manager support
 - Stdio transport for MCP communication
 
+[1.9.5]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.5
+[1.9.4]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.4
 [1.9.3]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.3
 [1.9.2]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.2
 [1.9.1]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.1
