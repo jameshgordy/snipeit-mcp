@@ -5,6 +5,24 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-11-13
+
+Re-release of the judgment-backed data-quality tools from the withdrawn 2.0.0,
+on top of the 1.9.1 to 1.9.5 fixes. See the 2.0.0 entry below for the full
+description of `find_duplicates`, `match_records` and the judgment backends.
+No breaking changes: the two tools appear only when a backend is configured,
+and an unconfigured server presents the same 40 tools as 1.9.5.
+
+### Added
+- `find_duplicates` and `match_records` (optional, read-only), with the
+  `systemone` and `openai` judgment backends, as described under 2.0.0.
+
+### Changed
+- System One wire contract re-verified against `typesafe-sdk` 0.7.5 (was
+  0.7.2): path, request body, answer shapes, environment variable names and
+  defaults are unchanged. The SDK's new `box` question type and `assets`
+  field are not used.
+
 ## [1.9.5] - 2026-11-13
 
 ### Added
@@ -82,6 +100,68 @@ files through `{type}/{id}/files` (`UploadedFilesController`).
   `SnipeITDirectAPI.upload_files`, which sends `file[]` multipart fields to
   `POST /api/v1/hardware/{id}/files` without the JSON content type and raises
   on Snipe-IT's HTTP 200 `{"status": "error"}` replies like `_request` does.
+## [2.0.0] - 2026-09-28 [WITHDRAWN]
+
+Published on 2026-09-28 and withdrawn the same day; the GitHub release, tag
+and container image were removed. Re-released as 2.0.1.
+
+No breaking changes: the major version marks the new optional judgment-model
+capability. Existing configurations, tools, and payloads behave exactly as in
+1.9.0; the two new tools appear only when a backend is configured.
+
+### Added
+- **Data-quality tools backed by a judgment model** (optional). The tools ask
+  typed questions with a probability per option and are hidden from
+  `tools/list` until a backend is configured, so an unconfigured server
+  presents the same 40 tools as before.
+  - `find_duplicates`: pairwise duplicate detection over manufacturers, models,
+    suppliers, locations, categories, companies or departments. Candidate pairs
+    are chosen in code (all pairs for small tables; token/prefix blocking with a
+    lexical-similarity threshold otherwise, capped by `max_pairs` and at 20 000
+    comparisons), then judged on a three-level entity-alignment rubric
+    (different / possibly the same / same) plus a name-variant probability.
+    Returns `duplicates`, `review` and `different_count` with score, confidence,
+    confidence band, both records (with item counts) and a per-type
+    `resolution_hint` for merging in Snipe-IT. Categories of different types
+    are never compared; models sharing a `model_number` are always compared.
+  - `match_records`: resolves free-text names to existing record ids. The
+    lexically closest records (default 50, max 254) are offered as options
+    together with an explicit `none`; verdicts `accept` (confidence ≥ 0.9),
+    `review`, `none`. A choice outside the offered options is reported as an
+    error, never as a match.
+  - Both tools are read-only with respect to Snipe-IT, report `backend`,
+    `model`, `calibrated`, `confidence_source`, `usage` and `elapsed_seconds`,
+    and stop submitting work when `JUDGMENT_TIME_BUDGET` (default 300 s) runs
+    out, listing skipped items in `errors`. Users are deliberately not
+    supported (personal data).
+- **Pluggable judgment backends** (`snipeit_mcp.judgment`, selected with
+  `JUDGMENT_BACKEND`), no new dependencies:
+  - `systemone` (default): the `POST /v1/systemone` protocol of TypeSafe Jev,
+    also served by self-hosted open-weight System One models (Laya, CLM,
+    Rapid-MLX, openjev). Calibrated probabilities. The `TYPESAFE_API_KEY`,
+    `TYPESAFE_BASE_URL`, `TYPESAFE_DEFAULT_MODEL` and `TYPESAFE_TIMEOUT`
+    variables of the official SDK are accepted as aliases, so a plain
+    `TYPESAFE_API_KEY` enables Jev. Wire contract verified against
+    `typesafe-sdk` 0.7.2.
+  - `openai`: any OpenAI-compatible `/chat/completions` server with JSON-schema
+    structured outputs (Ollama, vLLM, LM Studio, llama.cpp, OpenRouter,
+    OpenAI). Questions are rendered into a prompt with a strict response
+    schema; the reply is validated against the question definitions and
+    converted to the System One answer shapes. Confidence is the model's
+    self-reported value, or vote frequency across `JUDGMENT_SAMPLES` runs; both
+    are reported as `calibrated: false`.
+  - Shared HTTP plumbing: pooled `requests.Session` per backend, retries on
+    408/429/5xx and all transport errors (2 retries, exponential backoff,
+    `Retry-After` / `retry-after-ms` honoured), readable error messages for
+    401/404/422/429 with configuration hints.
+- Snipe-IT list pagination for the new tools terminates on the server-reported
+  total rather than on a short page, so instances with `MAX_RESULTS` below 500
+  are still fully scanned. Endpoints, transformer fields and the page cap
+  verified against Snipe-IT v8.7.2.
+- README: "Data Quality" feature section and an "Optional — judgment backend for
+  the data-quality tools" configuration section with a backend comparison
+  table, per-backend examples, a data-leaves-your-network warning, cost/limit
+  notes and how to read confidence bands and the `calibrated` flag.
 
 ## [1.9.0] - 2026-08-27
 
@@ -300,6 +380,7 @@ files through `{type}/{id}/files` (`UploadedFilesController`).
 - UV package manager support
 - Stdio transport for MCP communication
 
+[2.0.1]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/2.0.1
 [1.9.5]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.5
 [1.9.4]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.4
 [1.9.3]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.3
