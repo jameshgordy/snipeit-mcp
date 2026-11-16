@@ -5,10 +5,14 @@ All notable changes to the Snipe-IT MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.2] - 2026-11-16
 
 ### Fixed
-- Correct custom-field association and disassociation API routes and payloads.
+- `manage_fields` `associate` and `disassociate` called routes that do not exist
+  in Snipe-IT (`fields/{id}/associate/{fieldset_id}`), so both actions always
+  failed. They now POST to `fields/{id}/associate` and `fields/{id}/disassociate`
+  with `fieldset_id` in the request body, as verified against Snipe-IT v8.8.3.
+  Thanks to @dillon-e (#38).
 
 ## [2.0.1] - 2026-11-13
 
@@ -385,6 +389,7 @@ capability. Existing configurations, tools, and payloads behave exactly as in
 - UV package manager support
 - Stdio transport for MCP communication
 
+[2.0.2]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/2.0.2
 [2.0.1]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/2.0.1
 [1.9.5]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.5
 [1.9.4]: https://github.com/jameshgordy/snipeit-mcp/releases/tag/1.9.4
