@@ -146,11 +146,11 @@ def manage_fields(
             if not field_id or not fieldset_id:
                 return {"success": False, "error": "field_id and fieldset_id are required for associate action"}
 
-            payload = {"required": required}
+            payload = {"fieldset_id": fieldset_id, "required": required}
             if order is not None:
                 payload["order"] = order
 
-            result = api._request("POST", f"fields/{field_id}/associate/{fieldset_id}", json=payload)
+            result = api._request("POST", f"fields/{field_id}/associate", json=payload)
 
             return {
                 "success": True,
@@ -164,7 +164,7 @@ def manage_fields(
             if not field_id or not fieldset_id:
                 return {"success": False, "error": "field_id and fieldset_id are required for disassociate action"}
 
-            result = api._request("POST", f"fields/{field_id}/disassociate/{fieldset_id}")
+            result = api._request("POST", f"fields/{field_id}/disassociate", json={"fieldset_id": fieldset_id})
 
             return {
                 "success": True,

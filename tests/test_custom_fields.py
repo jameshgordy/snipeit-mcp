@@ -55,6 +55,20 @@ class TestManageFields:
         result = get_tool_fn(manage_fields)(action="associate", field_id=1, fieldset_id=2)
         assert result["success"] is True
         assert result["action"] == "associate"
+        mock_direct_api._request.assert_called_once_with(
+            "POST", "fields/1/associate", json={"fieldset_id": 2, "required": False}
+        )
+
+    def test_associate_required_with_order(self, mock_direct_api):
+        from snipeit_mcp import manage_fields
+        result = get_tool_fn(manage_fields)(
+            action="associate", field_id=1, fieldset_id=2, required=True, order=3
+        )
+        assert result["success"] is True
+        mock_direct_api._request.assert_called_once_with(
+            "POST", "fields/1/associate",
+            json={"fieldset_id": 2, "required": True, "order": 3}
+        )
 
     def test_associate_missing_ids(self, mock_direct_api):
         from snipeit_mcp import manage_fields
@@ -67,6 +81,9 @@ class TestManageFields:
         result = get_tool_fn(manage_fields)(action="disassociate", field_id=1, fieldset_id=2)
         assert result["success"] is True
         assert result["action"] == "disassociate"
+        mock_direct_api._request.assert_called_once_with(
+            "POST", "fields/1/disassociate", json={"fieldset_id": 2}
+        )
 
     def test_disassociate_missing_ids(self, mock_direct_api):
         from snipeit_mcp import manage_fields
